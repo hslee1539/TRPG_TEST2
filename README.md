@@ -13,13 +13,18 @@
    ```bash
    pip install langchain openai
    ```
-2. OpenAI API 키를 환경변수로 설정합니다.
+2. LM Studio에서 원하는 모델을 선택하고 "OpenAI Compatible Server"를 실행합니다.
+   - 기본적으로 서버는 `http://localhost:1234/v1`에서 동작합니다.
+   - 필요하다면 `Settings > Developer > Server`에서 포트나 인증 토큰을 조정하세요.
+3. (선택) 다른 호스트/포트나 토큰을 사용한다면 환경변수를 설정합니다.
    ```bash
-   export OPENAI_API_KEY="sk-..."
+   export LM_STUDIO_API_BASE="http://localhost:1234/v1"
+   export LM_STUDIO_API_KEY="lm-studio"
    ```
-3. 게임을 시작합니다.
+   커맨드라인 옵션 `--api-base`, `--api-key`로도 값을 전달할 수 있습니다.
+4. 게임을 시작합니다.
    ```bash
-   python main.py --model gpt-3.5-turbo --temperature 0.8
+   python main.py --model "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF" --temperature 0.8
    ```
    원하는 경우 모델명이나 temperature 값은 옵션으로 조정할 수 있습니다.
 
