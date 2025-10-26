@@ -202,7 +202,7 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_gm = object()
 
     with mock.patch.object(main, "parse_args", return_value=SimpleNamespace(
-        model="model", temperature=0.9, api_base=None, api_key=None
+        model="model", temperature=0.9, api_base=None, api_key=None, input_mode="text"
     )) as parse_args:
         with mock.patch.object(main, "build_game_master", return_value=fake_gm) as build:
             with mock.patch.object(main, "prompt_loop") as loop:
@@ -212,13 +212,14 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     parse_args.assert_called_once_with(["--anything"])
     build.assert_called_once_with(model="model", temperature=0.9, api_base=None, api_key=None)
     loop.assert_called_once()
+    assert loop.call_args.kwargs["input_mode"] == "text"
 
 
 def test_main_handles_initialization_errors() -> None:
     """``main`` should emit errors and return a failing exit code on exceptions."""
 
     with mock.patch.object(main, "parse_args", return_value=SimpleNamespace(
-        model="m", temperature=0.1, api_base=None, api_key=None
+        model="m", temperature=0.1, api_base=None, api_key=None, input_mode="text"
     )):
         with mock.patch.object(main, "build_game_master", side_effect=RuntimeError("boom")):
             with mock.patch.object(sys, "stderr") as fake_stderr:
@@ -226,3 +227,34 @@ def test_main_handles_initialization_errors() -> None:
 
     assert exit_code == 1
     fake_stderr.write.assert_called()  # Ensure an error was surfaced to the user.
+
+
+def test_prompt_loop_voice_initialization_failure(capsys: pytest.CaptureFixture[str]) -> None:
+    """Voice mode should exit gracefully if initialization fails."""
+
+    gm = _DummyGameMaster([])
+
+    with mock.patch.object(main, "_initialize_voice_capture", side_effect=RuntimeError("no mic")):
+        main.prompt_loop(gm, input_mode="voice")
+
+    captured = capsys.readouterr()
+    assert "no mic" in captured.err
+
+
+def test_prompt_loop_voice_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The loop should process recognized speech and stop when the player says quit."""
+
+    gm = _DummyGameMaster(["Voice response"])
+
+    voice_inputs = iter([None, "Hello", "quit"])
+
+    monkeypatch.setattr(main, "_initialize_voice_capture", lambda: ("recognizer", "microphone"))
+
+    def fake_capture(recognizer, microphone):
+        return next(voice_inputs)
+
+    monkeypatch.setattr(main, "_capture_voice_input", fake_capture)
+
+    main.prompt_loop(gm, input_mode="voice")
+
+    assert gm.inputs == ["Hello"]
