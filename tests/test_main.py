@@ -44,6 +44,23 @@ class _StubMessagesPlaceholder:  # pragma: no cover
         self.kwargs = kwargs
 
 
+class _StubBaseMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class _StubSystemMessage(_StubBaseMessage):
+    pass
+
+
+class _StubHumanMessage(_StubBaseMessage):
+    pass
+
+
+class _StubAIMessage(_StubBaseMessage):
+    pass
+
+
 def _install_langchain_stubs() -> None:
     langchain_module = types.ModuleType("langchain")
 
@@ -63,12 +80,19 @@ def _install_langchain_stubs() -> None:
     prompts_module.ChatPromptTemplate = _StubChatPromptTemplate
     prompts_module.MessagesPlaceholder = _StubMessagesPlaceholder
 
+    schema_module = types.ModuleType("langchain.schema")
+    schema_module.BaseMessage = _StubBaseMessage
+    schema_module.SystemMessage = _StubSystemMessage
+    schema_module.HumanMessage = _StubHumanMessage
+    schema_module.AIMessage = _StubAIMessage
+
     sys.modules.setdefault("langchain", langchain_module)
     sys.modules.setdefault("langchain.chat_models", chat_models_module)
     sys.modules.setdefault("langchain_openai", langchain_openai_module)
     sys.modules.setdefault("langchain.chains", chains_module)
     sys.modules.setdefault("langchain.memory", memory_module)
     sys.modules.setdefault("langchain.prompts", prompts_module)
+    sys.modules.setdefault("langchain.schema", schema_module)
 
 
 _install_langchain_stubs()

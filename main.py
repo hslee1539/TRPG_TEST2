@@ -9,8 +9,11 @@ from typing import Optional
 
 try:  # pragma: no cover - import paths differ across langchain versions
     from langchain_openai import ChatOpenAI
-except ImportError:  # pragma: no cover - fallback for older installations
-    from langchain.chat_models import ChatOpenAI  # type: ignore
+except ImportError:  # pragma: no cover - fallback for alternate package layouts
+    try:
+        from langchain_community.chat_models import ChatOpenAI  # type: ignore
+    except ImportError:  # pragma: no cover - fallback for legacy langchain
+        from langchain.chat_models import ChatOpenAI  # type: ignore
 
 from trpg import GameMaster, create_default_game_master
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
