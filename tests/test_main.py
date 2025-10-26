@@ -108,12 +108,18 @@ class _DummyGameMaster:
     def __init__(self, responses: list[str]) -> None:
         self._responses = responses
         self.inputs: list[str] = []
+        self.scene = "(initial scene)"
 
     def respond(self, player_input: str) -> str:
         self.inputs.append(player_input)
         if not self._responses:
             raise AssertionError("No responses left in dummy game master")
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        self.scene = f"Scene: {player_input} -> {response}"
+        return response
+
+    def render_scene(self, width: int = 60) -> str:
+        return self.scene
 
 
 def test_build_llm_uses_explicit_arguments() -> None:
@@ -192,6 +198,7 @@ def test_prompt_loop_handles_quit(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "Intro" in captured.out
     assert "Response 1" in captured.out
+    assert "Scene: Hello -> Response 1" in captured.out
     # The dummy GM should have received only the non-quit input.
     assert gm.inputs == ["Hello"]
 

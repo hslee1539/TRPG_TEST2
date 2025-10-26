@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib import import_module
+import textwrap
 from typing import Any, Iterable, List, Optional, Sequence
 
 
@@ -57,6 +58,29 @@ class GameState:
         if not self.facts:
             return "(no established facts yet)"
         return "\n".join(f"- {fact}" for fact in self.facts)
+
+    def render_scene(self, *, width: int = 60) -> str:
+        """Render an ASCII "image" summarising the known facts."""
+
+        width = max(20, width)
+        border = "+" + "-" * (width + 2) + "+"
+
+        if not self.facts:
+            message = "(no established facts yet)"
+            centered = message.center(width)
+            body_lines = [f"| {centered} |"]
+        else:
+            body_lines: List[str] = []
+            bullet_space = 2  # account for bullet and a following space
+            wrap_width = width - bullet_space
+            for fact in self.facts:
+                wrapped = textwrap.wrap(fact, wrap_width) or [""]
+                for index, segment in enumerate(wrapped):
+                    bullet = "• " if index == 0 else "  "
+                    padded = (bullet + segment).ljust(width)
+                    body_lines.append(f"| {padded} |")
+
+        return "\n".join([border, *body_lines, border])
 
 
 class GameMaster:
@@ -123,6 +147,11 @@ class GameMaster:
         self.state.add_fact(f"Player: {player_input}")
         self.state.add_fact(f"GM: {response_text}")
         return response_text
+
+    def render_scene(self, *, width: int = 60) -> str:
+        """Expose the ASCII representation of the tracked facts."""
+
+        return self.state.render_scene(width=width)
 
 
 def create_default_game_master(llm) -> GameMaster:
