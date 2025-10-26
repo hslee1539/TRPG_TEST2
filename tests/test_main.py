@@ -50,6 +50,9 @@ def _install_langchain_stubs() -> None:
     chat_models_module = types.ModuleType("langchain.chat_models")
     chat_models_module.ChatOpenAI = _StubChatOpenAI
 
+    langchain_openai_module = types.ModuleType("langchain_openai")
+    langchain_openai_module.ChatOpenAI = _StubChatOpenAI
+
     chains_module = types.ModuleType("langchain.chains")
     chains_module.LLMChain = _StubLLMChain
 
@@ -62,6 +65,7 @@ def _install_langchain_stubs() -> None:
 
     sys.modules.setdefault("langchain", langchain_module)
     sys.modules.setdefault("langchain.chat_models", chat_models_module)
+    sys.modules.setdefault("langchain_openai", langchain_openai_module)
     sys.modules.setdefault("langchain.chains", chains_module)
     sys.modules.setdefault("langchain.memory", memory_module)
     sys.modules.setdefault("langchain.prompts", prompts_module)
