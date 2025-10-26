@@ -79,6 +79,12 @@ def prompt_loop(gm: GameMaster, initial_prompt: Optional[str] = None) -> None:
 
         print(f"GM: {response}\n")
 
+        render_scene = getattr(gm, "render_scene", None)
+        if callable(render_scene):
+            scene_image = render_scene()
+            if scene_image:
+                print(f"{scene_image}\n")
+
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)

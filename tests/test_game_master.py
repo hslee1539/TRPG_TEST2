@@ -50,7 +50,13 @@ _install_message_stubs()
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from trpg.game_master import AIMessage, GameMaster, SystemMessage, create_default_game_master
+from trpg.game_master import (
+    AIMessage,
+    GameMaster,
+    GameState,
+    SystemMessage,
+    create_default_game_master,
+)
 
 
 class _DummyInvokeLLM:
@@ -125,3 +131,25 @@ def test_game_master_accepts_callable_llms() -> None:
 
     assert reply == "Callable path"
     assert llm.calls, "Callable LLM should have been invoked"
+
+
+def test_game_state_render_scene_formats_ascii_image() -> None:
+    """``render_scene`` should summarise facts inside an ASCII frame."""
+
+    state = GameState()
+
+    empty_scene = state.render_scene(width=24)
+    assert empty_scene.splitlines()[0] == "+" + "-" * 26 + "+"
+    assert "(no established facts yet)" in empty_scene
+
+    state.add_fact("Player: Hello")
+    state.add_fact("GM: The sky is blue and bright.")
+
+    scene = state.render_scene(width=24)
+    lines = scene.splitlines()
+
+    assert lines[0] == "+" + "-" * 26 + "+"
+    assert lines[-1] == lines[0]
+    assert any("• Player: Hello" in line for line in lines)
+    assert any("• GM: The sky is blue" in line for line in lines)
+    assert any("and bright." in line for line in lines)
