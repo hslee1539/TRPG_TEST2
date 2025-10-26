@@ -10,20 +10,43 @@ from typing import Optional
 from langchain.chat_models import ChatOpenAI
 
 from trpg import GameMaster, create_default_game_master
+DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
+DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
 
 
-def build_llm(model: str, temperature: float) -> ChatOpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "OPENAI_API_KEY is not set. Provide an API key to talk to the LLM."
-        )
+def build_llm(
+    model: str,
+    temperature: float,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> ChatOpenAI:
+    resolved_api_base = api_base or os.getenv(
+        "LM_STUDIO_API_BASE", DEFAULT_LM_STUDIO_API_BASE
+    )
+    resolved_api_key = api_key or os.getenv(
+        "LM_STUDIO_API_KEY", DEFAULT_LM_STUDIO_API_KEY
+    )
 
-    return ChatOpenAI(model=model, temperature=temperature, openai_api_key=api_key)
+    return ChatOpenAI(
+        model=model,
+        temperature=temperature,
+        openai_api_key=resolved_api_key,
+        openai_api_base=resolved_api_base,
+    )
 
 
-def build_game_master(model: str, temperature: float) -> GameMaster:
-    llm = build_llm(model=model, temperature=temperature)
+def build_game_master(
+    model: str,
+    temperature: float,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> GameMaster:
+    llm = build_llm(
+        model=model,
+        temperature=temperature,
+        api_base=api_base,
+        api_key=api_key,
+    )
     return create_default_game_master(llm)
 
 
@@ -55,8 +78,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model",
-        default="gpt-3.5-turbo",
-        help="OpenAI chat model to use via LangChain (default: %(default)s)",
+        default="lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF",
+        help="LM Studio chat model to use via LangChain (default: %(default)s)",
     )
     parser.add_argument(
         "--temperature",
@@ -64,13 +87,36 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=0.8,
         help="Sampling temperature to use for the LLM (default: %(default)s)",
     )
+    parser.add_argument(
+        "--api-base",
+        default=None,
+        help=(
+            "Base URL for the LM Studio OpenAI-compatible server. "
+            "Defaults to the value of LM_STUDIO_API_BASE or "
+            f"{DEFAULT_LM_STUDIO_API_BASE}."
+        ),
+    )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help=(
+            "API key for the LM Studio OpenAI-compatible server. "
+            "Defaults to the value of LM_STUDIO_API_KEY or "
+            f"{DEFAULT_LM_STUDIO_API_KEY}."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     try:
-        gm = build_game_master(model=args.model, temperature=args.temperature)
+        gm = build_game_master(
+            model=args.model,
+            temperature=args.temperature,
+            api_base=args.api_base,
+            api_key=args.api_key,
+        )
     except Exception as exc:
         print(exc, file=sys.stderr)
         return 1
