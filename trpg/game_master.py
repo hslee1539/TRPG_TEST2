@@ -141,9 +141,16 @@ class GameMaster:
         raw_response = self._call_llm(messages)
         response_text = self._message_content(raw_response)
 
-        self._chat_history.extend(
-            [HumanMessage(content=player_input), AIMessage(content=response_text)]
-        )
+        player_message = messages[-1]
+        if not isinstance(player_message, BaseMessage):
+            player_message = HumanMessage(content=player_input)
+
+        if isinstance(raw_response, BaseMessage):
+            ai_message = raw_response
+        else:
+            ai_message = AIMessage(content=response_text)
+
+        self._chat_history.extend([player_message, ai_message])
         self.state.add_fact(f"Player: {player_input}")
         self.state.add_fact(f"GM: {response_text}")
         return response_text
