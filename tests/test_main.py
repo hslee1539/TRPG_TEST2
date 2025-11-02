@@ -214,6 +214,7 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
         api_base=None,
         api_key=None,
         input_mode="text",
+        speak_gm=False,
     )) as parse_args:
         with mock.patch.object(main, "build_game_master", return_value=fake_gm) as build:
             with mock.patch.object(main, "prompt_loop") as loop:
@@ -224,6 +225,7 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     build.assert_called_once_with(model="model", temperature=0.9, api_base=None, api_key=None)
     loop.assert_called_once()
     assert loop.call_args.kwargs["input_mode"] == "text"
+    assert loop.call_args.kwargs["speak_gm"] is False
 
 
 def test_main_handles_initialization_errors() -> None:
@@ -273,6 +275,104 @@ def test_prompt_loop_voice_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     main.prompt_loop(gm, input_mode="voice")
 
     assert gm.inputs == ["Hello"]
+
+
+def test_prompt_loop_voice_output_initialization_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Voice output errors should be surfaced but not crash the loop."""
+
+    gm = _DummyGameMaster(["Ignored"])
+
+    with mock.patch.object(main, "_initialize_voice_output", side_effect=RuntimeError("no tts")):
+        with mock.patch.object(builtins, "input", side_effect=["quit"]):
+            with mock.patch.object(main, "_speak_text") as speak:
+                main.prompt_loop(gm, speak_gm=True)
+
+    speak.assert_not_called()
+    captured = capsys.readouterr()
+    assert "no tts" in captured.err
+
+
+def test_prompt_loop_speaks_responses() -> None:
+    """When enabled, the GM's replies should be spoken via the TTS helper."""
+
+    gm = _DummyGameMaster(["First response"])
+
+    inputs = iter(["Hello", "quit"])
+
+    with mock.patch.object(main, "_initialize_voice_output", return_value="engine") as init:
+        with mock.patch.object(builtins, "input", side_effect=lambda _: next(inputs)):
+            with mock.patch.object(main, "_speak_text") as speak:
+                main.prompt_loop(gm, speak_gm=True)
+
+    init.assert_called_once()
+    speak.assert_called_once_with("engine", "First response")
+    assert gm.inputs == ["Hello"]
+
+
+def test_initialize_voice_output_selects_korean_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The TTS helper should pick a Korean voice when one is available."""
+
+    engine = mock.MagicMock()
+    engine.getProperty.return_value = [
+        SimpleNamespace(id="english", languages=[b"en_US"]),
+        SimpleNamespace(id="korean", languages=[b"ko_KR"]),
+    ]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    assert engine.setProperty.call_args_list == [
+        mock.call("volume", 1.0),
+        mock.call("voice", "korean"),
+    ]
+
+
+def test_initialize_voice_output_handles_missing_korean_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If no Korean voice exists, the engine should still be configured safely."""
+
+    engine = mock.MagicMock()
+    engine.getProperty.return_value = [SimpleNamespace(id="english", languages=["en_US"])]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    engine.setProperty.assert_called_once_with("volume", 1.0)
+
+
+def test_initialize_voice_output_uses_korean_named_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Voices whose names contain Korean text should be selected."""
+
+    engine = mock.MagicMock()
+    engine.getProperty.return_value = [
+        SimpleNamespace(id="voice-1", name="English", languages=[]),
+        SimpleNamespace(id="voice-2", name="한국어 음성", languages=[]),
+    ]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    assert engine.setProperty.call_args_list == [
+        mock.call("volume", 1.0),
+        mock.call("voice", "voice-2"),
+    ]
 
 
 def test_capture_voice_input_uses_korean_language() -> None:
