@@ -161,6 +161,7 @@ def create_default_game_master(llm) -> GameMaster:
         "You are a warm, collaborative tabletop role-playing game master. "
         "Guide the player through an exciting narrative, respond to their "
         "actions, describe the world vividly, and ask follow-up questions "
-        "to keep the story moving. Keep responses under 200 words."
+        "to keep the story moving. Keep responses under 200 words and "
+        "answer in Korean."
     )
     return GameMaster(llm, system_template=system_template)
