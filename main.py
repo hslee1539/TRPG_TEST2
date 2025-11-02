@@ -74,6 +74,12 @@ def _initialize_voice_capture() -> Tuple[Any, Any]:
         microphone = _speech_recognition.Microphone()
     except OSError as exc:
         raise RuntimeError(f"Unable to access a microphone: {exc}") from exc
+    except AttributeError as exc:
+        raise RuntimeError(
+            "SpeechRecognition requires PyAudio for microphone input. "
+            "Install PyAudio (ensure the PortAudio development headers are available, e.g., "
+            "`brew install portaudio` on macOS) or switch to --input-mode text."
+        ) from exc
 
     # Calibrate for ambient noise to improve recognition accuracy.
     with microphone as source:  # pragma: no cover - requires audio hardware
