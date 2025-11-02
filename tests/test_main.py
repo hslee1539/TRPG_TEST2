@@ -214,6 +214,7 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
         api_base=None,
         api_key=None,
         input_mode="text",
+        speak_gm=False,
     )) as parse_args:
         with mock.patch.object(main, "build_game_master", return_value=fake_gm) as build:
             with mock.patch.object(main, "prompt_loop") as loop:
@@ -224,6 +225,7 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     build.assert_called_once_with(model="model", temperature=0.9, api_base=None, api_key=None)
     loop.assert_called_once()
     assert loop.call_args.kwargs["input_mode"] == "text"
+    assert loop.call_args.kwargs["speak_gm"] is False
 
 
 def test_main_handles_initialization_errors() -> None:
@@ -272,6 +274,40 @@ def test_prompt_loop_voice_flow(monkeypatch: pytest.MonkeyPatch) -> None:
 
     main.prompt_loop(gm, input_mode="voice")
 
+    assert gm.inputs == ["Hello"]
+
+
+def test_prompt_loop_voice_output_initialization_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Voice output errors should be surfaced but not crash the loop."""
+
+    gm = _DummyGameMaster(["Ignored"])
+
+    with mock.patch.object(main, "_initialize_voice_output", side_effect=RuntimeError("no tts")):
+        with mock.patch.object(builtins, "input", side_effect=["quit"]):
+            with mock.patch.object(main, "_speak_text") as speak:
+                main.prompt_loop(gm, speak_gm=True)
+
+    speak.assert_not_called()
+    captured = capsys.readouterr()
+    assert "no tts" in captured.err
+
+
+def test_prompt_loop_speaks_responses() -> None:
+    """When enabled, the GM's replies should be spoken via the TTS helper."""
+
+    gm = _DummyGameMaster(["First response"])
+
+    inputs = iter(["Hello", "quit"])
+
+    with mock.patch.object(main, "_initialize_voice_output", return_value="engine") as init:
+        with mock.patch.object(builtins, "input", side_effect=lambda _: next(inputs)):
+            with mock.patch.object(main, "_speak_text") as speak:
+                main.prompt_loop(gm, speak_gm=True)
+
+    init.assert_called_once()
+    speak.assert_called_once_with("engine", "First response")
     assert gm.inputs == ["Hello"]
 
 

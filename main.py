@@ -21,6 +21,11 @@ try:  # pragma: no cover - optional dependency for voice input
     import speech_recognition as _speech_recognition
 except ImportError:  # pragma: no cover - voice input is optional
     _speech_recognition = None
+
+try:  # pragma: no cover - optional dependency for voice output
+    import pyttsx3 as _pyttsx3
+except ImportError:  # pragma: no cover - voice output is optional
+    _pyttsx3 = None
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
 DEFAULT_SPEECH_LANGUAGE = "ko-KR"
@@ -110,11 +115,36 @@ def _capture_voice_input(recognizer: Any, microphone: Any) -> Optional[str]:
     return text
 
 
+def _initialize_voice_output() -> Any:
+    """Prepare the text-to-speech engine for reading GM responses aloud."""
+
+    if _pyttsx3 is None:  # pragma: no cover - runtime guard
+        raise RuntimeError("pyttsx3 is not installed. Install it to use voice output.")
+
+    try:
+        engine = _pyttsx3.init()
+    except Exception as exc:  # pragma: no cover - backend specific failures
+        raise RuntimeError(f"Unable to initialise text-to-speech: {exc}") from exc
+
+    return engine
+
+
+def _speak_text(engine: Any, text: str) -> None:
+    """Speak the provided text using the configured TTS engine."""
+
+    try:
+        engine.say(text)
+        engine.runAndWait()
+    except Exception as exc:  # pragma: no cover - backend specific failures
+        raise RuntimeError(f"Failed to speak text: {exc}") from exc
+
+
 def prompt_loop(
     gm: GameMaster,
     initial_prompt: Optional[str] = None,
     *,
     input_mode: str = "text",
+    speak_gm: bool = False,
 ) -> None:
     if initial_prompt:
         print(initial_prompt)
@@ -130,6 +160,14 @@ def prompt_loop(
         except RuntimeError as exc:
             print(f"Voice input is unavailable: {exc}", file=sys.stderr)
             return
+
+    tts_engine: Optional[Any] = None
+    if speak_gm:
+        try:
+            tts_engine = _initialize_voice_output()
+        except RuntimeError as exc:
+            print(f"Voice output is unavailable: {exc}", file=sys.stderr)
+            speak_gm = False
 
     while True:
         if input_mode == "voice":
@@ -165,6 +203,13 @@ def prompt_loop(
             break
 
         print(f"GM: {response}\n")
+
+        if tts_engine is not None:
+            try:
+                _speak_text(tts_engine, response)
+            except RuntimeError as exc:
+                print(f"Voice output error: {exc}", file=sys.stderr)
+                tts_engine = None
 
         render_scene = getattr(gm, "render_scene", None)
         if callable(render_scene):
@@ -210,6 +255,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default="text",
         help="How to capture player input (default: %(default)s)",
     )
+    parser.add_argument(
+        "--speak-gm",
+        action="store_true",
+        help="Read the GM's responses aloud using text-to-speech.",
+    )
     return parser.parse_args(argv)
 
 
@@ -230,7 +280,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         "Welcome to the LangChain powered TRPG! The LLM will lead the story "
         "as your game master."
     )
-    prompt_loop(gm, initial_prompt=intro, input_mode=args.input_mode)
+    prompt_loop(
+        gm,
+        initial_prompt=intro,
+        input_mode=args.input_mode,
+        speak_gm=args.speak_gm,
+    )
     return 0
 
 
