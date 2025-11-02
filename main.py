@@ -29,6 +29,16 @@ except ImportError:  # pragma: no cover - voice output is optional
     _pyttsx3 = None
 
 _SENTENCE_ENDINGS = {".", "!", "?", "！", "？", "…"}
+_PREFERRED_KOREAN_VOICE_KEYWORDS = (
+    "heami",
+    "sunhi",
+    "seoyeon",
+    "jihun",
+    "yuna",
+    "sohyun",
+    "mijin",
+    "hyunjun",
+)
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
 DEFAULT_SPEECH_LANGUAGE = "ko-KR"
@@ -148,23 +158,39 @@ def _initialize_voice_output() -> Any:
             normalised.append(decoded.strip().lower())
         return normalised
 
-    korean_voice_id: Optional[str] = None
-    for voice in voices:
+    def _score_voice(voice: Any, index: int) -> tuple[int, int]:
+        """Calculate a weighted score for how suitable a voice is for Korean TTS."""
+
         language_codes = _iter_language_codes(voice)
         voice_name = _normalise(getattr(voice, "name", ""))
         voice_id = _normalise(getattr(voice, "id", ""))
+        quality = _normalise(getattr(voice, "quality", ""))
 
+        score = 0
         if any("ko" in code for code in language_codes):
-            korean_voice_id = getattr(voice, "id", None)
-        elif (
-            "korean" in voice_name
-            or "한국" in voice_name
-            or "ko" in voice_id
-        ):
-            korean_voice_id = getattr(voice, "id", None)
+            score += 6
+        if "korean" in voice_name or "한국" in voice_name:
+            score += 4
+        if "ko" in voice_id:
+            score += 2
+        for keyword in _PREFERRED_KOREAN_VOICE_KEYWORDS:
+            if keyword in voice_name or keyword in voice_id:
+                score += 5
+                break
+        if "neural" in quality:
+            score += 3
+        elif "enhanced" in quality or "premium" in quality:
+            score += 2
 
-        if korean_voice_id:
-            break
+        return score, -index
+
+    korean_voice_id: Optional[str] = None
+    best_score: tuple[int, int] = (-1, 0)
+    for idx, voice in enumerate(voices):
+        score = _score_voice(voice, idx)
+        if score > best_score:
+            korean_voice_id = getattr(voice, "id", None)
+            best_score = score
 
     try:
         engine.setProperty("volume", 1.0)

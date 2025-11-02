@@ -406,6 +406,35 @@ def test_initialize_voice_output_uses_korean_named_voice(
     assert mock.call("voice", "voice-2") in engine.setProperty.call_args_list
 
 
+def test_initialize_voice_output_prefers_high_quality_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Higher quality Korean voices should be chosen over basic ones."""
+
+    engine = mock.MagicMock()
+    fancy_voice = SimpleNamespace(
+        id="microsoft-heami",
+        name="Microsoft Heami - Korean (Korea)",
+        languages=[b"ko_KR"],
+        quality="Neural",
+    )
+    basic_voice = SimpleNamespace(
+        id="espeak-korean",
+        name="eSpeak Korean",
+        languages=[b"ko"],
+    )
+    engine.getProperty.side_effect = [[basic_voice, fancy_voice], 170]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    assert mock.call("voice", "microsoft-heami") in engine.setProperty.call_args_list
+
+
 def test_capture_voice_input_uses_korean_language() -> None:
     """Speech recognition should request transcription in Korean."""
 
