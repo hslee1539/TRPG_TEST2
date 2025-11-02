@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib import import_module
+import re
 import textwrap
 from typing import Any, Iterable, List, Optional, Sequence
 
@@ -139,7 +140,9 @@ class GameMaster:
 
         messages = self.build_messages(player_input)
         raw_response = self._call_llm(messages)
-        response_text = self._message_content(raw_response)
+        response_text = self._strip_hidden_thoughts(
+            self._message_content(raw_response)
+        )
 
         self._chat_history.extend(
             [HumanMessage(content=player_input), AIMessage(content=response_text)]
@@ -147,6 +150,14 @@ class GameMaster:
         self.state.add_fact(f"Player: {player_input}")
         self.state.add_fact(f"GM: {response_text}")
         return response_text
+
+    @staticmethod
+    def _strip_hidden_thoughts(text: str) -> str:
+        """Remove hidden reasoning tags (e.g. ``<think>``) from model output."""
+
+        pattern = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+        cleaned = pattern.sub("", text)
+        return cleaned.strip()
 
     def render_scene(self, *, width: int = 60) -> str:
         """Expose the ASCII representation of the tracked facts."""

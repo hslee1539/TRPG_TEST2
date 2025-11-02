@@ -87,6 +87,18 @@ def test_game_master_updates_state_and_history() -> None:
     assert gm.state.facts[-2:] == ["Player: Hello there", "GM: The GM continues the tale."]
 
 
+def test_game_master_strips_hidden_thoughts() -> None:
+    """Model responses should hide any ``<think>`` deliberation blocks."""
+
+    llm = _DummyInvokeLLM("<think>Deliberation</think> Visible reply.")
+    gm = create_default_game_master(llm)
+
+    reply = gm.respond("Look around")
+
+    assert reply == "Visible reply."
+    assert gm.state.facts[-1] == "GM: Visible reply."
+
+
 class _DummyPredictMessagesLLM:
     """LLM stub that only offers the legacy ``predict_messages`` API."""
 
