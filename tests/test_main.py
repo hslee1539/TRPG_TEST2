@@ -311,6 +311,46 @@ def test_prompt_loop_speaks_responses() -> None:
     assert gm.inputs == ["Hello"]
 
 
+def test_initialize_voice_output_selects_korean_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The TTS helper should pick a Korean voice when one is available."""
+
+    engine = mock.MagicMock()
+    engine.getProperty.return_value = [
+        SimpleNamespace(id="english", languages=[b"en_US"]),
+        SimpleNamespace(id="korean", languages=[b"ko_KR"]),
+    ]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    assert engine.setProperty.call_args_list == [
+        mock.call("volume", 1.0),
+        mock.call("voice", "korean"),
+    ]
+
+
+def test_initialize_voice_output_handles_missing_korean_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If no Korean voice exists, the engine should still be configured safely."""
+
+    engine = mock.MagicMock()
+    engine.getProperty.return_value = [SimpleNamespace(id="english", languages=["en_US"])]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    engine.setProperty.assert_called_once_with("volume", 1.0)
+
+
 def test_capture_voice_input_uses_korean_language() -> None:
     """Speech recognition should request transcription in Korean."""
 

@@ -126,6 +126,36 @@ def _initialize_voice_output() -> Any:
     except Exception as exc:  # pragma: no cover - backend specific failures
         raise RuntimeError(f"Unable to initialise text-to-speech: {exc}") from exc
 
+    try:
+        voices = list(engine.getProperty("voices") or [])
+    except Exception as exc:  # pragma: no cover - backend specific failures
+        raise RuntimeError(f"Unable to enumerate text-to-speech voices: {exc}") from exc
+
+    korean_voice_id: Optional[str] = None
+    for voice in voices:
+        languages = getattr(voice, "languages", ()) or ()
+        for language in languages:
+            if isinstance(language, bytes):
+                language_code = language.decode(errors="ignore")
+            else:
+                language_code = str(language)
+            if "ko" in language_code.lower():
+                korean_voice_id = getattr(voice, "id", None)
+                break
+        if korean_voice_id:
+            break
+
+    try:
+        engine.setProperty("volume", 1.0)
+    except Exception as exc:  # pragma: no cover - backend specific failures
+        raise RuntimeError(f"Unable to configure voice volume: {exc}") from exc
+
+    if korean_voice_id:
+        try:
+            engine.setProperty("voice", korean_voice_id)
+        except Exception as exc:  # pragma: no cover - backend specific failures
+            raise RuntimeError(f"Unable to select Korean voice: {exc}") from exc
+
     return engine
 
 
