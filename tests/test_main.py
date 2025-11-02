@@ -214,7 +214,6 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
         api_base=None,
         api_key=None,
         input_mode="text",
-        speech_languages="en-US,ko-KR",
     )) as parse_args:
         with mock.patch.object(main, "build_game_master", return_value=fake_gm) as build:
             with mock.patch.object(main, "prompt_loop") as loop:
@@ -225,7 +224,6 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     build.assert_called_once_with(model="model", temperature=0.9, api_base=None, api_key=None)
     loop.assert_called_once()
     assert loop.call_args.kwargs["input_mode"] == "text"
-    assert loop.call_args.kwargs["speech_languages"] == ("en-US", "ko-KR")
 
 
 def test_main_handles_initialization_errors() -> None:
@@ -237,7 +235,6 @@ def test_main_handles_initialization_errors() -> None:
         api_base=None,
         api_key=None,
         input_mode="text",
-        speech_languages="en-US,ko-KR",
     )):
         with mock.patch.object(main, "build_game_master", side_effect=RuntimeError("boom")):
             with mock.patch.object(sys, "stderr") as fake_stderr:
@@ -268,23 +265,31 @@ def test_prompt_loop_voice_flow(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(main, "_initialize_voice_capture", lambda: ("recognizer", "microphone"))
 
-    def fake_capture(recognizer, microphone, languages):
-        assert languages == ("ko-KR", "en-US")
+    def fake_capture(recognizer, microphone):
         return next(voice_inputs)
 
     monkeypatch.setattr(main, "_capture_voice_input", fake_capture)
 
-    main.prompt_loop(gm, input_mode="voice", speech_languages=("ko-KR", "en-US"))
+    main.prompt_loop(gm, input_mode="voice")
 
     assert gm.inputs == ["Hello"]
 
 
-def test_parse_speech_languages_handles_various_inputs() -> None:
-    """Ensure speech recognition languages are normalised correctly."""
+def test_capture_voice_input_uses_korean_language() -> None:
+    """Speech recognition should request transcription in Korean."""
 
-    assert main._parse_speech_languages(None) == main.DEFAULT_SPEECH_LANGUAGES
-    assert main._parse_speech_languages("en-US, ko-KR") == ("en-US", "ko-KR")
-    assert main._parse_speech_languages(["ko-KR", " en-US "]) == ("ko-KR", "en-US")
+    recognizer = mock.MagicMock()
+    microphone = mock.MagicMock()
+    microphone.__enter__.return_value = microphone
+    audio = mock.sentinel.audio
 
-    with pytest.raises(ValueError):
-        main._parse_speech_languages([" ", ""])  # type: ignore[arg-type]
+    recognizer.listen.return_value = audio
+    recognizer.recognize_google.return_value = "안녕하세요"
+
+    result = main._capture_voice_input(recognizer, microphone)
+
+    assert result == "안녕하세요"
+    recognizer.listen.assert_called_once_with(microphone)
+    recognizer.recognize_google.assert_called_once_with(
+        audio, language=main.DEFAULT_SPEECH_LANGUAGE
+    )
