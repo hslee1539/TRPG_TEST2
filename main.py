@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - import paths differ across langchain versions
     from langchain_openai import ChatOpenAI
@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - voice input is optional
     _speech_recognition = None
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
+DEFAULT_SPEECH_LANGUAGES: Tuple[str, ...] = ("en-US", "ko-KR")
 
 
 def build_llm(
@@ -88,7 +89,9 @@ def _initialize_voice_capture() -> Tuple[Any, Any]:
     return recognizer, microphone
 
 
-def _capture_voice_input(recognizer: Any, microphone: Any) -> Optional[str]:
+def _capture_voice_input(
+    recognizer: Any, microphone: Any, languages: Sequence[str]
+) -> Optional[str]:
     """Listen to the microphone and return transcribed speech."""
 
     if _speech_recognition is None:  # pragma: no cover - runtime guard
@@ -98,15 +101,16 @@ def _capture_voice_input(recognizer: Any, microphone: Any) -> Optional[str]:
     with microphone as source:  # pragma: no cover - requires audio hardware
         audio = recognizer.listen(source)
 
-    try:
-        text = recognizer.recognize_google(audio)
-    except _speech_recognition.UnknownValueError:
-        print("Sorry, I didn't catch that. Let's try again.\n")
-        return None
-    except _speech_recognition.RequestError as exc:
-        raise RuntimeError(f"Speech recognition service error: {exc}") from exc
+    for language in languages:
+        try:
+            return recognizer.recognize_google(audio, language=language)
+        except _speech_recognition.UnknownValueError:
+            continue
+        except _speech_recognition.RequestError as exc:
+            raise RuntimeError(f"Speech recognition service error: {exc}") from exc
 
-    return text
+    print("Sorry, I didn't catch that. Let's try again.\n")
+    return None
 
 
 def prompt_loop(
@@ -114,6 +118,7 @@ def prompt_loop(
     initial_prompt: Optional[str] = None,
     *,
     input_mode: str = "text",
+    speech_languages: Optional[Sequence[str]] = None,
 ) -> None:
     if initial_prompt:
         print(initial_prompt)
@@ -123,6 +128,7 @@ def prompt_loop(
         print("Type 'quit' to end the session.\n")
 
     voice_resources: Optional[Tuple[Any, Any]] = None
+    languages = tuple(speech_languages) if speech_languages else DEFAULT_SPEECH_LANGUAGES
     if input_mode == "voice":
         try:
             voice_resources = _initialize_voice_capture()
@@ -135,7 +141,7 @@ def prompt_loop(
             assert voice_resources is not None  # Satisfy type checkers.
             recognizer, microphone = voice_resources
             try:
-                user_input = _capture_voice_input(recognizer, microphone)
+                user_input = _capture_voice_input(recognizer, microphone, languages)
             except KeyboardInterrupt:
                 print()
                 break
@@ -209,7 +215,36 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default="text",
         help="How to capture player input (default: %(default)s)",
     )
+    parser.add_argument(
+        "--speech-languages",
+        default=",".join(DEFAULT_SPEECH_LANGUAGES),
+        help=(
+            "Comma separated list of language codes for speech recognition. "
+            "Defaults to both English (en-US) and Korean (ko-KR)."
+        ),
+    )
     return parser.parse_args(argv)
+
+
+def _parse_speech_languages(
+    languages: Optional[Sequence[str] | str],
+) -> Tuple[str, ...]:
+    """Normalise user provided speech recognition language codes."""
+
+    if languages is None:
+        return DEFAULT_SPEECH_LANGUAGES
+
+    if isinstance(languages, str):
+        candidates = [segment.strip() for segment in languages.split(",")]
+    else:
+        candidates = [str(segment).strip() for segment in languages]
+
+    resolved = tuple(language for language in candidates if language)
+    if not resolved:
+        raise ValueError(
+            "At least one speech recognition language code must be specified."
+        )
+    return resolved
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -225,11 +260,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
+    try:
+        speech_languages = _parse_speech_languages(args.speech_languages)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
     intro = (
         "Welcome to the LangChain powered TRPG! The LLM will lead the story "
         "as your game master."
     )
-    prompt_loop(gm, initial_prompt=intro, input_mode=args.input_mode)
+    prompt_loop(
+        gm,
+        initial_prompt=intro,
+        input_mode=args.input_mode,
+        speech_languages=speech_languages,
+    )
     return 0
 
 
