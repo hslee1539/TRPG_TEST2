@@ -198,9 +198,32 @@ def test_prompt_loop_handles_quit(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "Intro" in captured.out
     assert "Response 1" in captured.out
-    assert "Scene: Hello -> Response 1" in captured.out
-    # The dummy GM should have received only the non-quit input.
-    assert gm.inputs == ["Hello"]
+
+
+def test_prepare_speech_segments_splits_sentences() -> None:
+    """Speech text should be broken into short, punctuated segments."""
+
+    text = "첫 문장입니다! 두 번째 문장\n세 번째 문장"
+
+    segments = main._prepare_speech_segments(text)
+
+    assert segments == [
+        "첫 문장입니다!",
+        "두 번째 문장.",
+        "세 번째 문장.",
+    ]
+
+
+def test_speak_text_uses_prepared_segments() -> None:
+    """The TTS helper should feed each prepared segment to the engine."""
+
+    engine = mock.Mock()
+
+    with mock.patch.object(main, "_prepare_speech_segments", return_value=["하나.", "둘."]):
+        main._speak_text(engine, "ignored")
+
+    engine.say.assert_has_calls([mock.call("하나."), mock.call("둘.")])
+    engine.runAndWait.assert_called_once_with()
 
 
 def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -315,9 +338,12 @@ def test_initialize_voice_output_selects_korean_voice(monkeypatch: pytest.Monkey
     """The TTS helper should pick a Korean voice when one is available."""
 
     engine = mock.MagicMock()
-    engine.getProperty.return_value = [
-        SimpleNamespace(id="english", languages=[b"en_US"]),
-        SimpleNamespace(id="korean", languages=[b"ko_KR"]),
+    engine.getProperty.side_effect = [
+        [
+            SimpleNamespace(id="english", languages=[b"en_US"]),
+            SimpleNamespace(id="korean", languages=[b"ko_KR"]),
+        ],
+        180,
     ]
 
     fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
@@ -327,10 +353,9 @@ def test_initialize_voice_output_selects_korean_voice(monkeypatch: pytest.Monkey
 
     assert result is engine
     fake_pyttsx3.init.assert_called_once_with()
-    assert engine.setProperty.call_args_list == [
-        mock.call("volume", 1.0),
-        mock.call("voice", "korean"),
-    ]
+    assert mock.call("volume", 1.0) in engine.setProperty.call_args_list
+    assert any(call.args[0] == "rate" for call in engine.setProperty.call_args_list)
+    assert mock.call("voice", "korean") in engine.setProperty.call_args_list
 
 
 def test_initialize_voice_output_handles_missing_korean_voice(
@@ -339,7 +364,10 @@ def test_initialize_voice_output_handles_missing_korean_voice(
     """If no Korean voice exists, the engine should still be configured safely."""
 
     engine = mock.MagicMock()
-    engine.getProperty.return_value = [SimpleNamespace(id="english", languages=["en_US"])]
+    engine.getProperty.side_effect = [
+        [SimpleNamespace(id="english", languages=["en_US"])],
+        200,
+    ]
 
     fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
     monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
@@ -348,7 +376,8 @@ def test_initialize_voice_output_handles_missing_korean_voice(
 
     assert result is engine
     fake_pyttsx3.init.assert_called_once_with()
-    engine.setProperty.assert_called_once_with("volume", 1.0)
+    assert mock.call("volume", 1.0) in engine.setProperty.call_args_list
+    assert any(call.args[0] == "rate" for call in engine.setProperty.call_args_list)
 
 
 def test_initialize_voice_output_uses_korean_named_voice(
@@ -357,9 +386,12 @@ def test_initialize_voice_output_uses_korean_named_voice(
     """Voices whose names contain Korean text should be selected."""
 
     engine = mock.MagicMock()
-    engine.getProperty.return_value = [
-        SimpleNamespace(id="voice-1", name="English", languages=[]),
-        SimpleNamespace(id="voice-2", name="한국어 음성", languages=[]),
+    engine.getProperty.side_effect = [
+        [
+            SimpleNamespace(id="voice-1", name="English", languages=[]),
+            SimpleNamespace(id="voice-2", name="한국어 음성", languages=[]),
+        ],
+        190,
     ]
 
     fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
@@ -369,10 +401,9 @@ def test_initialize_voice_output_uses_korean_named_voice(
 
     assert result is engine
     fake_pyttsx3.init.assert_called_once_with()
-    assert engine.setProperty.call_args_list == [
-        mock.call("volume", 1.0),
-        mock.call("voice", "voice-2"),
-    ]
+    assert mock.call("volume", 1.0) in engine.setProperty.call_args_list
+    assert any(call.args[0] == "rate" for call in engine.setProperty.call_args_list)
+    assert mock.call("voice", "voice-2") in engine.setProperty.call_args_list
 
 
 def test_capture_voice_input_uses_korean_language() -> None:

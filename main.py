@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import os
 import sys
 from typing import Any, Optional, Tuple
@@ -26,6 +27,8 @@ try:  # pragma: no cover - optional dependency for voice output
     import pyttsx3 as _pyttsx3
 except ImportError:  # pragma: no cover - voice output is optional
     _pyttsx3 = None
+
+_SENTENCE_ENDINGS = {".", "!", "?", "！", "？", "…"}
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
 DEFAULT_SPEECH_LANGUAGE = "ko-KR"
@@ -168,6 +171,25 @@ def _initialize_voice_output() -> Any:
     except Exception as exc:  # pragma: no cover - backend specific failures
         raise RuntimeError(f"Unable to configure voice volume: {exc}") from exc
 
+    try:
+        raw_rate = engine.getProperty("rate")
+    except Exception as exc:  # pragma: no cover - backend specific failures
+        raise RuntimeError(f"Unable to read voice rate: {exc}") from exc
+
+    try:
+        default_rate = int(raw_rate)
+    except (TypeError, ValueError):
+        # Fall back to a sensible default if the engine returns an unexpected value.
+        default_rate = 180
+
+    # Slow the speech slightly to sound less robotic when speaking Korean.
+    natural_rate = max(140, int(default_rate * 0.85))
+    try:
+        engine.setProperty("rate", natural_rate)
+    except Exception:  # pragma: no cover - backend specific failures
+        # Failing to adjust the rate should not disable speech entirely.
+        pass
+
     if korean_voice_id:
         try:
             engine.setProperty("voice", korean_voice_id)
@@ -177,11 +199,41 @@ def _initialize_voice_output() -> Any:
     return engine
 
 
+def _prepare_speech_segments(text: str) -> list[str]:
+    """Split text into short segments optimised for TTS playback."""
+
+    normalised = text.replace("\r\n", "\n").strip()
+    if not normalised:
+        return []
+
+    # Collapse excessive spaces while preserving deliberate newlines.
+    normalised = re.sub(r"[\t ]+", " ", normalised)
+
+    # Ensure there is a pause after sentence punctuation and newlines.
+    sentence_break_pattern = re.compile(r"(?<=[.!?！？…])\s+|\n+")
+    segments = [segment.strip(" -•\t ") for segment in sentence_break_pattern.split(normalised)]
+
+    cleaned: list[str] = []
+    for segment in segments:
+        if not segment:
+            continue
+        if segment[-1] not in _SENTENCE_ENDINGS:
+            segment = f"{segment}."
+        cleaned.append(segment)
+
+    return cleaned
+
+
 def _speak_text(engine: Any, text: str) -> None:
     """Speak the provided text using the configured TTS engine."""
 
+    segments = _prepare_speech_segments(text)
+    if not segments:
+        return
+
     try:
-        engine.say(text)
+        for segment in segments:
+            engine.say(segment)
         engine.runAndWait()
     except Exception as exc:  # pragma: no cover - backend specific failures
         raise RuntimeError(f"Failed to speak text: {exc}") from exc
