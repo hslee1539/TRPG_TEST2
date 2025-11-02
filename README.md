@@ -11,7 +11,7 @@
 ## 실행 방법
 1. 필요한 패키지를 설치합니다.
    ```bash
-   pip install langchain openai
+   pip install -r requirements.txt
    ```
 2. LM Studio에서 원하는 모델을 선택하고 "OpenAI Compatible Server"를 실행합니다.
    - 기본적으로 서버는 `http://localhost:1234/v1`에서 동작합니다.
@@ -29,3 +29,16 @@
    원하는 경우 모델명이나 temperature 값은 옵션으로 조정할 수 있습니다.
 
 게임 도중 `quit` 혹은 `exit`을 입력하면 세션을 종료합니다.
+
+## 브라우저에서 플레이하기
+
+CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶다면 Flask 기반의 서버를 실행하세요.
+
+1. 앞선 단계에서 `pip install -r requirements.txt`를 이미 수행했다면 추가 설치는 필요 없습니다.
+2. 다음 명령으로 서버를 실행합니다.
+   ```bash
+   python server.py
+   ```
+3. 웹 브라우저에서 [http://localhost:3000](http://localhost:3000)으로 접속하면 새로운 세션이 자동으로 시작되고, 채팅 UI를 통해 TRPG를 진행할 수 있습니다.
+   - "새로 시작" 버튼을 누르면 현재 세션이 초기화됩니다.
+   - 세션 동안의 대화와 장면 요약은 페이지 내에서 계속 업데이트됩니다.
