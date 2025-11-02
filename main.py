@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - voice input is optional
     _speech_recognition = None
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
+DEFAULT_SPEECH_LANGUAGE = "ko-KR"
 
 
 def build_llm(
@@ -99,7 +100,7 @@ def _capture_voice_input(recognizer: Any, microphone: Any) -> Optional[str]:
         audio = recognizer.listen(source)
 
     try:
-        text = recognizer.recognize_google(audio)
+        text = recognizer.recognize_google(audio, language=DEFAULT_SPEECH_LANGUAGE)
     except _speech_recognition.UnknownValueError:
         print("Sorry, I didn't catch that. Let's try again.\n")
         return None

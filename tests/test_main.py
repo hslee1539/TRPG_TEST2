@@ -209,7 +209,11 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_gm = object()
 
     with mock.patch.object(main, "parse_args", return_value=SimpleNamespace(
-        model="model", temperature=0.9, api_base=None, api_key=None, input_mode="text"
+        model="model",
+        temperature=0.9,
+        api_base=None,
+        api_key=None,
+        input_mode="text",
     )) as parse_args:
         with mock.patch.object(main, "build_game_master", return_value=fake_gm) as build:
             with mock.patch.object(main, "prompt_loop") as loop:
@@ -226,7 +230,11 @@ def test_main_handles_initialization_errors() -> None:
     """``main`` should emit errors and return a failing exit code on exceptions."""
 
     with mock.patch.object(main, "parse_args", return_value=SimpleNamespace(
-        model="m", temperature=0.1, api_base=None, api_key=None, input_mode="text"
+        model="m",
+        temperature=0.1,
+        api_base=None,
+        api_key=None,
+        input_mode="text",
     )):
         with mock.patch.object(main, "build_game_master", side_effect=RuntimeError("boom")):
             with mock.patch.object(sys, "stderr") as fake_stderr:
@@ -265,3 +273,23 @@ def test_prompt_loop_voice_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     main.prompt_loop(gm, input_mode="voice")
 
     assert gm.inputs == ["Hello"]
+
+
+def test_capture_voice_input_uses_korean_language() -> None:
+    """Speech recognition should request transcription in Korean."""
+
+    recognizer = mock.MagicMock()
+    microphone = mock.MagicMock()
+    microphone.__enter__.return_value = microphone
+    audio = mock.sentinel.audio
+
+    recognizer.listen.return_value = audio
+    recognizer.recognize_google.return_value = "안녕하세요"
+
+    result = main._capture_voice_input(recognizer, microphone)
+
+    assert result == "안녕하세요"
+    recognizer.listen.assert_called_once_with(microphone)
+    recognizer.recognize_google.assert_called_once_with(
+        audio, language=main.DEFAULT_SPEECH_LANGUAGE
+    )
