@@ -351,6 +351,30 @@ def test_initialize_voice_output_handles_missing_korean_voice(
     engine.setProperty.assert_called_once_with("volume", 1.0)
 
 
+def test_initialize_voice_output_uses_korean_named_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Voices whose names contain Korean text should be selected."""
+
+    engine = mock.MagicMock()
+    engine.getProperty.return_value = [
+        SimpleNamespace(id="voice-1", name="English", languages=[]),
+        SimpleNamespace(id="voice-2", name="한국어 음성", languages=[]),
+    ]
+
+    fake_pyttsx3 = SimpleNamespace(init=mock.Mock(return_value=engine))
+    monkeypatch.setattr(main, "_pyttsx3", fake_pyttsx3)
+
+    result = main._initialize_voice_output()
+
+    assert result is engine
+    fake_pyttsx3.init.assert_called_once_with()
+    assert engine.setProperty.call_args_list == [
+        mock.call("volume", 1.0),
+        mock.call("voice", "voice-2"),
+    ]
+
+
 def test_capture_voice_input_uses_korean_language() -> None:
     """Speech recognition should request transcription in Korean."""
 

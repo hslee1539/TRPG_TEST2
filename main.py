@@ -131,17 +131,35 @@ def _initialize_voice_output() -> Any:
     except Exception as exc:  # pragma: no cover - backend specific failures
         raise RuntimeError(f"Unable to enumerate text-to-speech voices: {exc}") from exc
 
+    def _normalise(text: Any) -> str:
+        return str(text).strip().lower()
+
+    def _iter_language_codes(voice: Any) -> list[str]:
+        raw_languages = getattr(voice, "languages", ()) or ()
+        normalised: list[str] = []
+        for raw in raw_languages:
+            if isinstance(raw, bytes):
+                decoded = raw.decode(errors="ignore")
+            else:
+                decoded = str(raw)
+            normalised.append(decoded.strip().lower())
+        return normalised
+
     korean_voice_id: Optional[str] = None
     for voice in voices:
-        languages = getattr(voice, "languages", ()) or ()
-        for language in languages:
-            if isinstance(language, bytes):
-                language_code = language.decode(errors="ignore")
-            else:
-                language_code = str(language)
-            if "ko" in language_code.lower():
-                korean_voice_id = getattr(voice, "id", None)
-                break
+        language_codes = _iter_language_codes(voice)
+        voice_name = _normalise(getattr(voice, "name", ""))
+        voice_id = _normalise(getattr(voice, "id", ""))
+
+        if any("ko" in code for code in language_codes):
+            korean_voice_id = getattr(voice, "id", None)
+        elif (
+            "korean" in voice_name
+            or "한국" in voice_name
+            or "ko" in voice_id
+        ):
+            korean_voice_id = getattr(voice, "id", None)
+
         if korean_voice_id:
             break
 
