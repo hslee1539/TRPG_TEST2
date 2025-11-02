@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import os
 import sys
 from typing import Any, Optional, Tuple
@@ -26,6 +27,18 @@ try:  # pragma: no cover - optional dependency for voice output
     import pyttsx3 as _pyttsx3
 except ImportError:  # pragma: no cover - voice output is optional
     _pyttsx3 = None
+
+_SENTENCE_ENDINGS = {".", "!", "?", "！", "？", "…"}
+_PREFERRED_KOREAN_VOICE_KEYWORDS = (
+    "heami",
+    "sunhi",
+    "seoyeon",
+    "jihun",
+    "yuna",
+    "sohyun",
+    "mijin",
+    "hyunjun",
+)
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
 DEFAULT_SPEECH_LANGUAGE = "ko-KR"
@@ -145,28 +158,63 @@ def _initialize_voice_output() -> Any:
             normalised.append(decoded.strip().lower())
         return normalised
 
-    korean_voice_id: Optional[str] = None
-    for voice in voices:
+    def _score_voice(voice: Any, index: int) -> tuple[int, int]:
+        """Calculate a weighted score for how suitable a voice is for Korean TTS."""
+
         language_codes = _iter_language_codes(voice)
         voice_name = _normalise(getattr(voice, "name", ""))
         voice_id = _normalise(getattr(voice, "id", ""))
+        quality = _normalise(getattr(voice, "quality", ""))
 
+        score = 0
         if any("ko" in code for code in language_codes):
-            korean_voice_id = getattr(voice, "id", None)
-        elif (
-            "korean" in voice_name
-            or "한국" in voice_name
-            or "ko" in voice_id
-        ):
-            korean_voice_id = getattr(voice, "id", None)
+            score += 6
+        if "korean" in voice_name or "한국" in voice_name:
+            score += 4
+        if "ko" in voice_id:
+            score += 2
+        for keyword in _PREFERRED_KOREAN_VOICE_KEYWORDS:
+            if keyword in voice_name or keyword in voice_id:
+                score += 5
+                break
+        if "neural" in quality:
+            score += 3
+        elif "enhanced" in quality or "premium" in quality:
+            score += 2
 
-        if korean_voice_id:
-            break
+        return score, -index
+
+    korean_voice_id: Optional[str] = None
+    best_score: tuple[int, int] = (-1, 0)
+    for idx, voice in enumerate(voices):
+        score = _score_voice(voice, idx)
+        if score > best_score:
+            korean_voice_id = getattr(voice, "id", None)
+            best_score = score
 
     try:
         engine.setProperty("volume", 1.0)
     except Exception as exc:  # pragma: no cover - backend specific failures
         raise RuntimeError(f"Unable to configure voice volume: {exc}") from exc
+
+    try:
+        raw_rate = engine.getProperty("rate")
+    except Exception as exc:  # pragma: no cover - backend specific failures
+        raise RuntimeError(f"Unable to read voice rate: {exc}") from exc
+
+    try:
+        default_rate = int(raw_rate)
+    except (TypeError, ValueError):
+        # Fall back to a sensible default if the engine returns an unexpected value.
+        default_rate = 180
+
+    # Slow the speech slightly to sound less robotic when speaking Korean.
+    natural_rate = max(140, int(default_rate * 0.85))
+    try:
+        engine.setProperty("rate", natural_rate)
+    except Exception:  # pragma: no cover - backend specific failures
+        # Failing to adjust the rate should not disable speech entirely.
+        pass
 
     if korean_voice_id:
         try:
@@ -177,11 +225,41 @@ def _initialize_voice_output() -> Any:
     return engine
 
 
+def _prepare_speech_segments(text: str) -> list[str]:
+    """Split text into short segments optimised for TTS playback."""
+
+    normalised = text.replace("\r\n", "\n").strip()
+    if not normalised:
+        return []
+
+    # Collapse excessive spaces while preserving deliberate newlines.
+    normalised = re.sub(r"[\t ]+", " ", normalised)
+
+    # Ensure there is a pause after sentence punctuation and newlines.
+    sentence_break_pattern = re.compile(r"(?<=[.!?！？…])\s+|\n+")
+    segments = [segment.strip(" -•\t ") for segment in sentence_break_pattern.split(normalised)]
+
+    cleaned: list[str] = []
+    for segment in segments:
+        if not segment:
+            continue
+        if segment[-1] not in _SENTENCE_ENDINGS:
+            segment = f"{segment}."
+        cleaned.append(segment)
+
+    return cleaned
+
+
 def _speak_text(engine: Any, text: str) -> None:
     """Speak the provided text using the configured TTS engine."""
 
+    segments = _prepare_speech_segments(text)
+    if not segments:
+        return
+
     try:
-        engine.say(text)
+        for segment in segments:
+            engine.say(segment)
         engine.runAndWait()
     except Exception as exc:  # pragma: no cover - backend specific failures
         raise RuntimeError(f"Failed to speak text: {exc}") from exc
