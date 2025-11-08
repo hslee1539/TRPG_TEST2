@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TRPG 마을 모험</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="chat-panel">
+        <header>
+          <h1>TRPG 마을</h1>
+          <button id="restart" type="button">새로운 모험 시작</button>
+        </header>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <form id="chat-form" class="input-area">
+          <label class="visually-hidden" for="chat-input">행동을 입력하세요</label>
+          <textarea id="chat-input" rows="3" placeholder="당신의 다음 행동은 무엇인가요?" required></textarea>
+          <button type="submit">전송</button>
+        </form>
+      </section>
+      <section class="scene-panel">
+        <h2>현재 장면</h2>
+        <div class="scene-content">
+          <figure class="scene-illustration">
+            <div
+              id="scene-image"
+              class="scene-image"
+              role="img"
+              aria-label="현재 장면을 표현한 일러스트"
+              data-placeholder='{{ placeholder_svg | tojson | safe }}'
+            >
+              {{ placeholder_svg | safe }}
+            </div>
+          </figure>
+        </div>
+      </section>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
