@@ -246,3 +246,50 @@ def test_send_message_unknown_session_returns_404() -> None:
     )
     assert response.status_code == 404
     assert response.get_json() == {"error": "세션을 찾을 수 없습니다."}
+
+
+def test_configure_lmstudio_model_reuses_single_storyteller(monkeypatch) -> None:
+    created: list[tuple[str, Dict[str, Any]]] = []
+
+    class _StubStoryteller:
+        def __init__(self, model_name: str, **kwargs: Any) -> None:
+            created.append((model_name, kwargs))
+
+        def invoke(self, _messages):  # type: ignore[override]
+            return "STUB RESPONSE"
+
+    monkeypatch.setattr(server, "LMStudioStoryteller", _StubStoryteller)
+
+    server.configure_lmstudio_model(
+        "stub-model",
+        temperature=0.5,
+        max_tokens=256,
+        api_base="http://example.com/v1",
+        api_key="secret-token",
+    )
+
+    client = server.app.test_client()
+    session_one = client.post("/api/session").get_json()["sessionId"]
+    response_one = client.post(
+        f"/api/session/{session_one}/message",
+        json={"message": "주위를 살펴본다"},
+    )
+    assert response_one.status_code == 200
+    assert response_one.get_json()["gm"] == "STUB RESPONSE"
+
+    session_two = client.post("/api/session").get_json()["sessionId"]
+    response_two = client.post(
+        f"/api/session/{session_two}/message",
+        json={"message": "다시 시도"},
+    )
+    assert response_two.status_code == 200
+
+    assert len(created) == 1
+    model_name, kwargs = created[0]
+    assert model_name == "stub-model"
+    assert kwargs == {
+        "temperature": 0.5,
+        "max_tokens": 256,
+        "api_base": "http://example.com/v1",
+        "api_key": "secret-token",
+    }

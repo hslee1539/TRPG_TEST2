@@ -39,11 +39,16 @@ CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶�
    ```bash
    python server.py
    ```
-   - Apple Silicon 환경에서 [mlx-lm](https://github.com/ml-explore/mlx-examples/tree/main/llms/mlx_lm)을 사용하고 있다면, 사전에 `pip install mlx-lm`으로 패키지를 설치한 뒤 원하는 저장소 이름을 `--model` 옵션으로 넘겨 실제 모델을 사용할 수 있습니다.
+   - LM Studio 서버에서 실행 중인 모델을 그대로 활용하고 싶다면 CLI와 동일하게 모델 이름 및 연결 정보를 전달할 수 있습니다.
      ```bash
-     python server.py --model "mlx-community/gpt-oss-20b" --temperature 0.6 --max-tokens 400
+     python server.py \
+       --model "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF" \
+       --temperature 0.6 \
+       --max-tokens 400 \
+       --api-base "http://localhost:1234/v1" \
+       --api-key "lm-studio"
      ```
-     모델 로딩에 성공하면 브라우저 상호작용에서 해당 모델이 바로 응답을 생성합니다. 필수 패키지가 없거나 모델 로딩에 실패하면 친절한 오류 메시지가 출력됩니다.
+     API 서버 주소와 키는 생략 시 환경변수(`LM_STUDIO_API_BASE`, `LM_STUDIO_API_KEY`)나 기본값을 따릅니다. 서버는 단일 LLM 인스턴스를 재사용하므로 브라우저 새 세션에서도 모델이 즉시 응답합니다.
 3. 웹 브라우저에서 [http://localhost:3000](http://localhost:3000)으로 접속하면 새로운 세션이 자동으로 시작되고, 채팅 UI를 통해 TRPG를 진행할 수 있습니다.
    - "새로 시작" 버튼을 누르면 현재 세션이 초기화됩니다.
    - 세션 동안의 대화와 장면 요약은 페이지 내에서 계속 업데이트됩니다.

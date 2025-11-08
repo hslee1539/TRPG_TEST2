@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -88,8 +89,12 @@ def use_llm_instance(llm: Any) -> None:
     configure_llm(lambda: llm)
 
 
-class MLXStoryteller:
-    """Wrapper around ``mlx_lm`` models for offline storytelling."""
+DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
+DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
+
+
+class LMStudioStoryteller:
+    """Wrapper around the LM Studio OpenAI-compatible API."""
 
     def __init__(
         self,
@@ -97,48 +102,60 @@ class MLXStoryteller:
         *,
         temperature: float = 0.7,
         max_tokens: int = 512,
+        api_base: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         try:
-            from mlx_lm import generate as mlx_generate, load as mlx_load
-        except ImportError as exc:  # pragma: no cover - exercised only with mlx installed
+            from openai import OpenAI
+        except ImportError as exc:  # pragma: no cover - exercised only without openai installed
             raise RuntimeError(
-                "mlx_lm 라이브러리를 찾을 수 없습니다."
-                " 'pip install mlx-lm' 명령으로 설치한 뒤 다시 시도해 주세요."
+                "openai 패키지를 찾을 수 없습니다. 'pip install openai' 명령으로 설치한 뒤 다시 시도해 주세요."
             ) from exc
 
-        self._load = mlx_load
-        self._generate = mlx_generate
+        resolved_api_base = api_base or os.getenv(
+            "LM_STUDIO_API_BASE", DEFAULT_LM_STUDIO_API_BASE
+        )
+        resolved_api_key = api_key or os.getenv(
+            "LM_STUDIO_API_KEY", DEFAULT_LM_STUDIO_API_KEY
+        )
+
+        self._client = OpenAI(base_url=resolved_api_base, api_key=resolved_api_key)
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self._model, self._tokenizer = self._load(model_name)
 
     @staticmethod
-    def _role_name(message: Any) -> str:
+    def _normalise_role(message: Any) -> str:
         role = getattr(message, "type", None) or getattr(message, "role", None)
-        if role:
-            return str(role).upper()
-        return message.__class__.__name__.upper()
+        role = str(role or "user").lower()
+        if role in {"ai", "assistant"}:
+            return "assistant"
+        if role in {"human", "user"}:
+            return "user"
+        if role == "system":
+            return "system"
+        return "user"
 
-    def _build_prompt(self, messages: List[Any]) -> str:
-        lines = []
+    def _build_payload(self, messages: List[Any]) -> List[Dict[str, str]]:
+        payload: List[Dict[str, str]] = []
         for message in messages:
-            role = self._role_name(message)
-            content = GameMaster._message_content(message)
-            lines.append(f"{role}: {content}")
-        lines.append("ASSISTANT:")
-        return "\n".join(lines)
+            payload.append(
+                {
+                    "role": self._normalise_role(message),
+                    "content": GameMaster._message_content(message),
+                }
+            )
+        return payload
 
     def invoke(self, messages: List[Any]):  # type: ignore[override]
-        prompt = self._build_prompt(messages)
-        response = self._generate(
-            self._model,
-            self._tokenizer,
-            prompt,
-            temp=self.temperature,
+        response = self._client.chat.completions.create(
+            model=self.model_name,
+            messages=self._build_payload(messages),
+            temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
-        return str(response).strip()
+        content = response.choices[0].message.content if response.choices else ""
+        return str(content or "").strip()
 
 
 def _create_game_master() -> GameMaster:
@@ -146,22 +163,26 @@ def _create_game_master() -> GameMaster:
     return create_default_game_master(llm)
 
 
-def configure_mlx_model(
+def configure_lmstudio_model(
     model_name: str,
     *,
     temperature: float = 0.7,
     max_tokens: int = 512,
+    api_base: str | None = None,
+    api_key: str | None = None,
 ) -> None:
-    """Load an MLX model and wire it into the server."""
+    """Configure the server to use LM Studio via its OpenAI-compatible API."""
 
     cache: Dict[str, Any] = {}
 
     def factory() -> Any:
         if "llm" not in cache:
-            cache["llm"] = MLXStoryteller(
+            cache["llm"] = LMStudioStoryteller(
                 model_name,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                api_base=api_base,
+                api_key=api_key,
             )
         return cache["llm"]
 
@@ -219,18 +240,28 @@ def index():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the TRPG web server.")
-    parser.add_argument("--model", help="mlx-community 모델 저장소 이름")
+    parser.add_argument("--model", help="LM Studio에서 실행 중인 모델 이름")
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument(
+        "--api-base",
+        help="LM Studio OpenAI 호환 서버의 주소 (기본: 환경변수 또는 http://localhost:1234/v1)",
+    )
+    parser.add_argument(
+        "--api-key",
+        help="LM Studio OpenAI 호환 서버에 전달할 API 키 (기본: 환경변수 또는 lm-studio)",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=3000)
     args = parser.parse_args()
 
     if args.model:
-        configure_mlx_model(
+        configure_lmstudio_model(
             args.model,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
+            api_base=args.api_base,
+            api_key=args.api_key,
         )
 
     app.run(host=args.host, port=args.port, debug=False)
