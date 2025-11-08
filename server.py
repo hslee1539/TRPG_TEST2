@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import html
 import os
 import re
 import uuid
@@ -66,29 +65,24 @@ class SimpleLocalLLM:
         }
         primary, accent = palette.get(theme, palette["town"])
 
-        gm_caption = html.escape(gm_text or "새로운 장면")
-        player_caption = html.escape(player_input or "플레이어의 다음 행동을 기다립니다.")
-        fact_caption = html.escape(" / ".join(facts[-2:]) or "기록된 사실 없음")
-
-        return f"""
-<svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img">
-  <defs>
-    <linearGradient id="scene-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="{primary}" />
-      <stop offset="100%" stop-color="{accent}" />
-    </linearGradient>
-  </defs>
-  <rect x="0" y="0" width="400" height="300" fill="url(#scene-gradient)" rx="24" />
-  <g fill="rgba(255,255,255,0.25)" stroke="none">
-    <circle cx="60" cy="80" r="36" />
-    <circle cx="320" cy="60" r="28" />
-    <circle cx="220" cy="210" r="42" />
-  </g>
-  <text x="200" y="140" font-size="22" fill="#ffffff" text-anchor="middle" font-weight="600">{gm_caption}</text>
-  <text x="200" y="180" font-size="16" fill="#ffffff" text-anchor="middle">{player_caption}</text>
-  <text x="200" y="220" font-size="14" fill="#fef3c7" text-anchor="middle">{fact_caption}</text>
-</svg>
-""".strip()
+        return """
+<svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img">""".strip() + (
+            ""
+            "\n  <defs>\n"
+            "    <linearGradient id=\"scene-gradient\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\">\n"
+            f"      <stop offset=\"0%\" stop-color=\"{primary}\" />\n"
+            f"      <stop offset=\"100%\" stop-color=\"{accent}\" />\n"
+            "    </linearGradient>\n"
+            "  </defs>\n"
+            "  <rect x=\"0\" y=\"0\" width=\"400\" height=\"300\" fill=\"url(#scene-gradient)\" rx=\"24\" />\n"
+            "  <g fill=\"rgba(255,255,255,0.18)\">\n"
+            "    <circle cx=\"60\" cy=\"70\" r=\"28\" />\n"
+            "    <circle cx=\"340\" cy=\"80\" r=\"32\" />\n"
+            "    <circle cx=\"210\" cy=\"220\" r=\"36\" />\n"
+            "  </g>\n"
+            f"{_render_scene_layer(theme, primary, accent)}\n"
+            "</svg>"
+        )
 
 
 @dataclass
@@ -189,6 +183,87 @@ def _select_scene_theme(*texts: str, default: str = "town") -> str:
                 return theme
     return default
 
+
+def _render_scene_layer(theme: str, primary: str, accent: str) -> str:
+    """Return layered SVG markup for the requested theme."""
+
+    if theme == "forest":
+        return f"""
+  <g>
+    <rect x="0" y="210" width="400" height="90" fill="#14532d" opacity="0.85" />
+    <g>
+      <rect x="60" y="170" width="18" height="80" fill="#4d2c1d" />
+      <polygon points="69,110 35,190 103,190" fill="{accent}" opacity="0.9" />
+    </g>
+    <g>
+      <rect x="170" y="190" width="16" height="70" fill="#4d2c1d" />
+      <polygon points="178,140 146,210 210,210" fill="{primary}" opacity="0.85" />
+    </g>
+    <g>
+      <rect x="270" y="180" width="14" height="80" fill="#4d2c1d" />
+      <polygon points="277,130 248,200 308,200" fill="{accent}" opacity="0.85" />
+    </g>
+    <circle cx="320" cy="90" r="36" fill="#fde68a" opacity="0.45" />
+  </g>
+""".strip()
+
+    if theme == "dungeon":
+        return f"""
+  <g>
+    <rect x="0" y="200" width="400" height="100" fill="#1f2937" opacity="0.9" />
+    <rect x="130" y="120" width="140" height="160" rx="24" fill="#374151" />
+    <path d="M150 220 Q200 160 250 220" fill="#111827" />
+    <path d="M150 220 Q200 260 250 220" fill="#0f172a" opacity="0.7" />
+    <g fill="{accent}">
+      <circle cx="140" cy="160" r="10" />
+      <rect x="138" y="165" width="4" height="26" />
+      <circle cx="260" cy="160" r="10" />
+      <rect x="258" y="165" width="4" height="26" />
+    </g>
+    <rect x="180" y="240" width="40" height="40" fill="{primary}" opacity="0.6" />
+  </g>
+""".strip()
+
+    if theme == "castle":
+        return f"""
+  <g>
+    <rect x="0" y="210" width="400" height="90" fill="#312e81" opacity="0.95" />
+    <rect x="60" y="130" width="60" height="170" fill="#4c1d95" />
+    <rect x="280" y="130" width="60" height="170" fill="#4c1d95" />
+    <rect x="120" y="180" width="160" height="120" fill="{primary}" />
+    <rect x="150" y="210" width="40" height="90" fill="#312e81" />
+    <rect x="210" y="210" width="40" height="90" fill="#312e81" />
+    <polygon points="90,130 90,100 120,100 120,130" fill="{accent}" />
+    <polygon points="310,130 310,100 340,100 340,130" fill="{accent}" />
+    <polygon points="200,120 180,90 220,90" fill="#c4b5fd" />
+    <path d="M110 180 L140 150 L170 180" fill="{primary}" opacity="0.8" />
+    <path d="M230 180 L260 150 L290 180" fill="{primary}" opacity="0.8" />
+    <circle cx="200" cy="120" r="16" fill="#fef3c7" opacity="0.6" />
+  </g>
+""".strip()
+
+    # default town scene
+    return f"""
+  <g>
+    <rect x="0" y="220" width="400" height="80" fill="#92400e" opacity="0.9" />
+    <g>
+      <rect x="70" y="170" width="80" height="110" fill="{primary}" />
+      <polygon points="70,170 110,120 150,170" fill="{accent}" />
+      <rect x="95" y="220" width="30" height="60" fill="#78350f" />
+      <rect x="80" y="190" width="24" height="24" fill="#fed7aa" />
+      <rect x="116" y="190" width="24" height="24" fill="#fed7aa" />
+    </g>
+    <g>
+      <rect x="220" y="190" width="90" height="90" fill="#fb7185" />
+      <polygon points="220,190 265,140 310,190" fill="{accent}" />
+      <rect x="245" y="230" width="30" height="50" fill="#9f1239" />
+      <rect x="232" y="205" width="20" height="20" fill="#fecdd3" />
+      <rect x="278" y="205" width="20" height="20" fill="#fecdd3" />
+    </g>
+    <path d="M0 250 Q200 230 400 270" fill="#fde68a" opacity="0.35" />
+    <circle cx="320" cy="90" r="26" fill="#fde68a" opacity="0.5" />
+  </g>
+""".strip()
 
 def _is_valid_svg(svg: str | None) -> bool:
     if not svg:

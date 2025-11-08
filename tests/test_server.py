@@ -186,6 +186,7 @@ def test_create_session_returns_greeting_and_scene() -> None:
     scene_image = payload.get("sceneImage")
     assert isinstance(scene_image, str)
     assert scene_image.startswith("<svg")
+    assert "<text" not in scene_image
     assert payload.get("sceneImageAlt") == history[0]["message"]
 
 
@@ -206,6 +207,7 @@ def test_send_message_updates_history_and_scene() -> None:
     ]
     assert payload["gm"].startswith("머나먼 종소리가 어렴풋이 울려 퍼진다.")
     assert payload["sceneImage"].startswith("<svg")
+    assert "<text" not in payload["sceneImage"]
     assert payload["sceneImageAlt"] == payload["gm"]
 
 
