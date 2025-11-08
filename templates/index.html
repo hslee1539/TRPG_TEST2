@@ -22,7 +22,16 @@
       </section>
       <section class="scene-panel">
         <h2>현재 장면</h2>
-        <pre id="scene" class="scene-display">세션을 불러오는 중...</pre>
+        <div class="scene-content">
+          <pre id="scene" class="scene-display">세션을 불러오는 중...</pre>
+          <figure class="scene-illustration">
+            <img
+              id="scene-image"
+              src="/static/scene-placeholder.svg"
+              alt="현재 장면을 표현한 일러스트"
+            />
+          </figure>
+        </div>
       </section>
     </main>
     <script src="/static/app.js" defer></script>

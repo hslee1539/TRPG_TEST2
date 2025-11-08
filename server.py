@@ -76,6 +76,9 @@ def _default_llm_factory() -> SimpleLocalLLM:
 _llm_factory: LLMFactory = _default_llm_factory
 
 
+SCENE_IMAGE_PLACEHOLDER = "/static/scene-placeholder.svg"
+
+
 def configure_llm(factory: LLMFactory) -> None:
     """Configure the callable used to create LLM instances for new sessions."""
 
@@ -206,6 +209,7 @@ def create_session():
             "sessionId": identifier,
             "history": session.history,
             "scene": gm.render_scene(width=50),
+            "sceneImage": SCENE_IMAGE_PLACEHOLDER,
         }
     )
 
@@ -229,6 +233,7 @@ def send_message(session_id: str):
             "history": session.history,
             "gm": gm_response,
             "scene": session.game_master.render_scene(width=50),
+            "sceneImage": SCENE_IMAGE_PLACEHOLDER,
         }
     )
 

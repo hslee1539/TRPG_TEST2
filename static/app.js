@@ -2,10 +2,13 @@ const chatLog = document.getElementById("chat-log");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 const sceneDisplay = document.getElementById("scene");
+const sceneImage = document.getElementById("scene-image");
 const restartButton = document.getElementById("restart");
 
 let sessionId = null;
 let sending = false;
+
+const PLACEHOLDER_IMAGE = "/static/scene-placeholder.svg";
 
 function appendMessage(role, message) {
   const wrapper = document.createElement("div");
@@ -29,8 +32,17 @@ function renderHistory(history = []) {
   history.forEach((item) => appendMessage(item.role, item.message));
 }
 
-function updateScene(sceneText) {
+function updateScene(sceneText, sceneImageUrl) {
   sceneDisplay.textContent = sceneText;
+  if (!sceneImage) {
+    return;
+  }
+
+  if (sceneImageUrl) {
+    sceneImage.src = sceneImageUrl;
+  } else {
+    sceneImage.src = PLACEHOLDER_IMAGE;
+  }
 }
 
 async function startSession() {
@@ -38,6 +50,9 @@ async function startSession() {
   chatInput.focus();
   sceneDisplay.textContent = "새로운 세션을 준비 중입니다...";
   chatLog.innerHTML = "";
+  if (sceneImage) {
+    sceneImage.src = PLACEHOLDER_IMAGE;
+  }
 
   try {
     const response = await fetch("/api/session", { method: "POST" });
@@ -47,7 +62,7 @@ async function startSession() {
     const data = await response.json();
     sessionId = data.sessionId;
     renderHistory(data.history);
-    updateScene(data.scene);
+    updateScene(data.scene, data.sceneImage);
   } catch (error) {
     appendMessage("gm", error.message || "세션 준비 중 오류가 발생했습니다.");
   }
@@ -77,7 +92,7 @@ async function sendMessage(message) {
 
     const data = await response.json();
     renderHistory(data.history);
-    updateScene(data.scene);
+    updateScene(data.scene, data.sceneImage);
   } catch (error) {
     appendMessage("gm", error.message || "무언가 잘못되었어요. 다시 시도해 주세요.");
   } finally {

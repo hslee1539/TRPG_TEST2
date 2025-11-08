@@ -1,0 +1,34 @@
+<svg width="320" height="240" viewBox="0 0 320 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7db2ff" />
+      <stop offset="100%" stop-color="#b5d8ff" />
+    </linearGradient>
+    <linearGradient id="groundGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7ac66c" />
+      <stop offset="100%" stop-color="#4e944f" />
+    </linearGradient>
+  </defs>
+  <rect width="320" height="160" fill="url(#skyGradient)" />
+  <rect y="140" width="320" height="100" fill="url(#groundGradient)" />
+  <circle cx="60" cy="60" r="28" fill="#ffe066" opacity="0.95" />
+  <g fill="#fff" opacity="0.85">
+    <ellipse cx="200" cy="75" rx="40" ry="18" />
+    <ellipse cx="230" cy="75" rx="30" ry="16" />
+    <ellipse cx="210" cy="85" rx="36" ry="14" />
+  </g>
+  <g fill="#6b4f4f" opacity="0.9">
+    <rect x="110" y="120" width="40" height="48" rx="4" />
+    <rect x="170" y="110" width="56" height="58" rx="6" />
+  </g>
+  <g fill="#f2f4f5">
+    <rect x="118" y="134" width="10" height="14" />
+    <rect x="132" y="134" width="10" height="14" />
+    <rect x="184" y="128" width="12" height="16" />
+    <rect x="206" y="128" width="12" height="16" />
+  </g>
+  <path d="M140 140 L140 168" stroke="#f7d794" stroke-width="6" stroke-linecap="round" />
+  <path d="M200 140 L196 170" stroke="#f7d794" stroke-width="6" stroke-linecap="round" />
+  <path d="M224 140 L220 180" stroke="#f7d794" stroke-width="6" stroke-linecap="round" />
+  <path d="M0 200 C80 180 120 220 200 210 C260 204 300 220 320 216" stroke="#3f704d" stroke-width="12" fill="none" stroke-linecap="round" />
+</svg>

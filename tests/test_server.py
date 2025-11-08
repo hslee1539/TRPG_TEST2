@@ -183,6 +183,9 @@ def test_create_session_returns_greeting_and_scene() -> None:
     assert isinstance(scene, str)
     assert "GM:" in scene
 
+    scene_image = payload.get("sceneImage")
+    assert scene_image == server.SCENE_IMAGE_PLACEHOLDER
+
 
 def test_send_message_updates_history_and_scene() -> None:
     client = server.app.test_client()
@@ -200,6 +203,7 @@ def test_send_message_updates_history_and_scene() -> None:
         {"role": "gm", "message": payload["gm"]},
     ]
     assert payload["gm"].startswith("머나먼 종소리가 어렴풋이 울려 퍼진다.")
+    assert payload["sceneImage"] == server.SCENE_IMAGE_PLACEHOLDER
 
 
 def test_can_inject_custom_llm_via_configure_llm() -> None:
@@ -224,6 +228,7 @@ def test_can_inject_custom_llm_via_configure_llm() -> None:
     assert payload["gm"].startswith("ECHO 1:")
     assert "Player: 테스트" in payload["scene"]
     assert "GM:" in payload["scene"]
+    assert payload["sceneImage"] == server.SCENE_IMAGE_PLACEHOLDER
 
 
 def test_send_message_validates_input() -> None:
