@@ -153,9 +153,11 @@ import server  # noqa: E402 (경로 조정 후 import)
 
 
 @pytest.fixture(autouse=True)
-def clear_sessions():
+def reset_server_state():
     server._sessions.clear()
+    server.configure_llm(server.SimpleLocalLLM)
     yield
+    server.configure_llm(server.SimpleLocalLLM)
     server._sessions.clear()
 
 
@@ -198,7 +200,29 @@ def test_send_message_updates_history_and_scene() -> None:
         {"role": "gm", "message": payload["gm"]},
     ]
     assert payload["gm"].startswith("머나먼 종소리가 어렴풋이 울려 퍼진다.")
-    assert "Player: 주변을 살핀다" in payload["scene"]
+
+
+def test_can_inject_custom_llm_via_configure_llm() -> None:
+    class _EchoLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def invoke(self, messages):  # type: ignore[override]
+            self.calls += 1
+            return f"ECHO {self.calls}: {messages[-1].content}"
+
+    server.configure_llm(lambda: _EchoLLM())
+    client = server.app.test_client()
+    session_id = client.post("/api/session").get_json()["sessionId"]
+
+    response = client.post(
+        f"/api/session/{session_id}/message",
+        json={"message": "테스트"},
+    )
+
+    payload = response.get_json()
+    assert payload["gm"].startswith("ECHO 1:")
+    assert "Player: 테스트" in payload["scene"]
     assert "GM:" in payload["scene"]
 
 

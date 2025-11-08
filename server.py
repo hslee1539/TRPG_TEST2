@@ -1,14 +1,18 @@
 """Web server exposing a browser-based TRPG experience."""
 from __future__ import annotations
 
+import argparse
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Any, Callable, Dict, List
 
 from flask import Flask, jsonify, render_template, request
 
 from trpg import GameMaster, create_default_game_master
+
+
+LLMFactory = Callable[[], Any]
 
 
 class SimpleLocalLLM:
@@ -60,14 +64,108 @@ class Session:
     def record(self, role: str, message: str) -> None:
         self.history.append({"role": role, "message": message})
 
-
 app = Flask(__name__)
 _sessions: Dict[str, Session] = {}
 
 
+def _default_llm_factory() -> SimpleLocalLLM:
+    return SimpleLocalLLM()
+
+
+_llm_factory: LLMFactory = _default_llm_factory
+
+
+def configure_llm(factory: LLMFactory) -> None:
+    """Configure the callable used to create LLM instances for new sessions."""
+
+    global _llm_factory
+    _llm_factory = factory
+
+
+def use_llm_instance(llm: Any) -> None:
+    """Pin the server to an already-instantiated LLM object."""
+
+    configure_llm(lambda: llm)
+
+
+class MLXStoryteller:
+    """Wrapper around ``mlx_lm`` models for offline storytelling."""
+
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+    ) -> None:
+        try:
+            from mlx_lm import generate as mlx_generate, load as mlx_load
+        except ImportError as exc:  # pragma: no cover - exercised only with mlx installed
+            raise RuntimeError(
+                "mlx_lm 라이브러리를 찾을 수 없습니다."
+                " 'pip install mlx-lm' 명령으로 설치한 뒤 다시 시도해 주세요."
+            ) from exc
+
+        self._load = mlx_load
+        self._generate = mlx_generate
+        self.model_name = model_name
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self._model, self._tokenizer = self._load(model_name)
+
+    @staticmethod
+    def _role_name(message: Any) -> str:
+        role = getattr(message, "type", None) or getattr(message, "role", None)
+        if role:
+            return str(role).upper()
+        return message.__class__.__name__.upper()
+
+    def _build_prompt(self, messages: List[Any]) -> str:
+        lines = []
+        for message in messages:
+            role = self._role_name(message)
+            content = GameMaster._message_content(message)
+            lines.append(f"{role}: {content}")
+        lines.append("ASSISTANT:")
+        return "\n".join(lines)
+
+    def invoke(self, messages: List[Any]):  # type: ignore[override]
+        prompt = self._build_prompt(messages)
+        response = self._generate(
+            self._model,
+            self._tokenizer,
+            prompt,
+            temp=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+        return str(response).strip()
+
+
 def _create_game_master() -> GameMaster:
-    llm = SimpleLocalLLM()
+    llm = _llm_factory()
     return create_default_game_master(llm)
+
+
+def configure_mlx_model(
+    model_name: str,
+    *,
+    temperature: float = 0.7,
+    max_tokens: int = 512,
+) -> None:
+    """Load an MLX model and wire it into the server."""
+
+    cache: Dict[str, Any] = {}
+
+    def factory() -> Any:
+        if "llm" not in cache:
+            cache["llm"] = MLXStoryteller(
+                model_name,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        return cache["llm"]
+
+    configure_llm(factory)
 
 
 @app.post("/api/session")
@@ -120,4 +218,19 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000, debug=False)
+    parser = argparse.ArgumentParser(description="Run the TRPG web server.")
+    parser.add_argument("--model", help="mlx-community 모델 저장소 이름")
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=3000)
+    args = parser.parse_args()
+
+    if args.model:
+        configure_mlx_model(
+            args.model,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+
+    app.run(host=args.host, port=args.port, debug=False)
