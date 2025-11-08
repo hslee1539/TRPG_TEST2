@@ -184,7 +184,7 @@ def test_create_session_returns_greeting_and_scene() -> None:
     assert "GM:" in scene
 
     scene_image = payload.get("sceneImage")
-    assert scene_image == server.SCENE_IMAGE_PLACEHOLDER
+    assert scene_image == server.SCENE_IMAGE_TOWN
 
 
 def test_send_message_updates_history_and_scene() -> None:
@@ -193,17 +193,17 @@ def test_send_message_updates_history_and_scene() -> None:
 
     response = client.post(
         f"/api/session/{session_id}/message",
-        json={"message": "주변을 살핀다"},
+        json={"message": "깊은 숲으로 발걸음을 옮긴다"},
     )
     assert response.status_code == 200
 
     payload = response.get_json()
     assert payload["history"][-2:] == [
-        {"role": "player", "message": "주변을 살핀다"},
+        {"role": "player", "message": "깊은 숲으로 발걸음을 옮긴다"},
         {"role": "gm", "message": payload["gm"]},
     ]
     assert payload["gm"].startswith("머나먼 종소리가 어렴풋이 울려 퍼진다.")
-    assert payload["sceneImage"] == server.SCENE_IMAGE_PLACEHOLDER
+    assert payload["sceneImage"] == server.SCENE_IMAGE_FOREST
 
 
 def test_can_inject_custom_llm_via_configure_llm() -> None:
@@ -228,7 +228,26 @@ def test_can_inject_custom_llm_via_configure_llm() -> None:
     assert payload["gm"].startswith("ECHO 1:")
     assert "Player: 테스트" in payload["scene"]
     assert "GM:" in payload["scene"]
-    assert payload["sceneImage"] == server.SCENE_IMAGE_PLACEHOLDER
+    assert payload["sceneImage"] == server.SCENE_IMAGE_TOWN
+
+
+def test_scene_image_updates_from_gm_description() -> None:
+    class _CastleLLM:
+        def invoke(self, _messages):  # type: ignore[override]
+            return "거대한 성벽과 궁전이 시야를 가득 채운다."
+
+    server.configure_llm(lambda: _CastleLLM())
+    client = server.app.test_client()
+    session_id = client.post("/api/session").get_json()["sessionId"]
+
+    response = client.post(
+        f"/api/session/{session_id}/message",
+        json={"message": "앞에 보이는 건물에 다가간다"},
+    )
+    assert response.status_code == 200
+
+    payload = response.get_json()
+    assert payload["sceneImage"] == server.SCENE_IMAGE_CASTLE
 
 
 def test_send_message_validates_input() -> None:

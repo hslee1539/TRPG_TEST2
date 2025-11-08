@@ -61,6 +61,7 @@ class Session:
     identifier: str
     game_master: GameMaster
     history: List[Dict[str, str]] = field(default_factory=list)
+    scene_image: str = ""
 
     def record(self, role: str, message: str) -> None:
         self.history.append({"role": role, "message": message})
@@ -77,6 +78,60 @@ _llm_factory: LLMFactory = _default_llm_factory
 
 
 SCENE_IMAGE_PLACEHOLDER = "/static/scene-placeholder.svg"
+SCENE_IMAGE_TOWN = "/static/scene-town.svg"
+SCENE_IMAGE_FOREST = "/static/scene-forest.svg"
+SCENE_IMAGE_DUNGEON = "/static/scene-dungeon.svg"
+SCENE_IMAGE_CASTLE = "/static/scene-castle.svg"
+
+_SCENE_KEYWORDS = [
+    (
+        SCENE_IMAGE_FOREST,
+        {
+            "숲",
+            "수풀",
+            "나무",
+            "정글",
+            "forest",
+            "woods",
+            "grove",
+        },
+    ),
+    (
+        SCENE_IMAGE_DUNGEON,
+        {
+            "던전",
+            "지하",
+            "동굴",
+            "폐허",
+            "dungeon",
+            "cave",
+            "crypt",
+        },
+    ),
+    (
+        SCENE_IMAGE_CASTLE,
+        {
+            "성",
+            "성벽",
+            "궁전",
+            "castle",
+            "fortress",
+            "palace",
+        },
+    ),
+    (
+        SCENE_IMAGE_TOWN,
+        {
+            "마을",
+            "도시",
+            "시장",
+            "거리",
+            "town",
+            "village",
+            "city",
+        },
+    ),
+]
 
 
 def configure_llm(factory: LLMFactory) -> None:
@@ -166,6 +221,29 @@ def _create_game_master() -> GameMaster:
     return create_default_game_master(llm)
 
 
+def _normalise_text_for_scene(text: str) -> str:
+    return text.lower()
+
+
+def _match_scene_image(text: str) -> str | None:
+    normalised = _normalise_text_for_scene(text)
+    for image_path, keywords in _SCENE_KEYWORDS:
+        for keyword in keywords:
+            if keyword.lower() in normalised:
+                return image_path
+    return None
+
+
+def _select_scene_image(*texts: str, default: str = SCENE_IMAGE_PLACEHOLDER) -> str:
+    for text in texts:
+        if not text:
+            continue
+        matched = _match_scene_image(text)
+        if matched:
+            return matched
+    return default
+
+
 def configure_lmstudio_model(
     model_name: str,
     *,
@@ -196,20 +274,25 @@ def configure_lmstudio_model(
 def create_session():
     identifier = uuid.uuid4().hex
     gm = _create_game_master()
-    session = Session(identifier=identifier, game_master=gm)
+    session = Session(
+        identifier=identifier,
+        game_master=gm,
+        scene_image=SCENE_IMAGE_PLACEHOLDER,
+    )
     greeting = (
         "안녕하세요! 이곳은 소규모 판타지 마을입니다. "
         "당신의 목표는 마음이 가는 대로 모험을 펼치며 작은 영웅이 되는 것입니다."
     )
     session.record("gm", greeting)
     gm.state.add_fact(f"GM: {greeting}")
+    session.scene_image = _select_scene_image(greeting, default=session.scene_image)
     _sessions[identifier] = session
     return jsonify(
         {
             "sessionId": identifier,
             "history": session.history,
             "scene": gm.render_scene(width=50),
-            "sceneImage": SCENE_IMAGE_PLACEHOLDER,
+            "sceneImage": session.scene_image,
         }
     )
 
@@ -228,12 +311,18 @@ def send_message(session_id: str):
     session.record("player", player_input)
     gm_response = session.game_master.respond(player_input)
     session.record("gm", gm_response)
+    session.scene_image = _select_scene_image(
+        gm_response,
+        player_input,
+        "\n".join(session.game_master.state.facts[-4:]),
+        default=session.scene_image or SCENE_IMAGE_PLACEHOLDER,
+    )
     return jsonify(
         {
             "history": session.history,
             "gm": gm_response,
             "scene": session.game_master.render_scene(width=50),
-            "sceneImage": SCENE_IMAGE_PLACEHOLDER,
+            "sceneImage": session.scene_image,
         }
     )
 
