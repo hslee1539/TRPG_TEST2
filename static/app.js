@@ -1,7 +1,6 @@
 const chatLog = document.getElementById("chat-log");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
-const sceneDisplay = document.getElementById("scene");
 const sceneImage = document.getElementById("scene-image");
 const restartButton = document.getElementById("restart");
 
@@ -33,7 +32,6 @@ function renderHistory(history = []) {
 }
 
 function updateScene(sceneText, sceneImageUrl) {
-  sceneDisplay.textContent = sceneText;
   if (!sceneImage) {
     return;
   }
@@ -43,15 +41,21 @@ function updateScene(sceneText, sceneImageUrl) {
   } else {
     sceneImage.src = PLACEHOLDER_IMAGE;
   }
+
+  if (sceneText) {
+    sceneImage.alt = sceneText;
+  } else {
+    sceneImage.alt = "현재 장면을 표현한 일러스트";
+  }
 }
 
 async function startSession() {
   chatInput.value = "";
   chatInput.focus();
-  sceneDisplay.textContent = "새로운 세션을 준비 중입니다...";
   chatLog.innerHTML = "";
   if (sceneImage) {
     sceneImage.src = PLACEHOLDER_IMAGE;
+    sceneImage.alt = "현재 장면을 표현한 일러스트";
   }
 
   try {
