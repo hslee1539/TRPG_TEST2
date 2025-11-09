@@ -337,3 +337,55 @@ def test_configure_lmstudio_model_reuses_single_storyteller(monkeypatch) -> None
         "api_base": "http://example.com/v1",
         "api_key": "secret-token",
     }
+
+
+def test_session_creation_fails_if_llm_cannot_draw() -> None:
+    class _BrokenLLM:
+        def invoke(self, _messages):  # type: ignore[override]
+            return "고장난 응답"
+
+        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+            raise RuntimeError("draw 실패")
+
+    server.configure_llm(lambda: _BrokenLLM())
+    client = server.app.test_client()
+
+    response = client.post("/api/session")
+    assert response.status_code == 500
+
+    payload = response.get_json()
+    assert payload == {
+        "error": "장면 이미지를 생성하지 못했습니다.",
+        "details": "draw 실패",
+    }
+    assert server._sessions == {}
+
+
+def test_send_message_returns_error_when_draw_scene_fails() -> None:
+    class _FlakyLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def invoke(self, messages):  # type: ignore[override]
+            return f"응답 {self.calls}"
+
+        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                return "<svg xmlns='http://www.w3.org/2000/svg'></svg>"
+            raise ValueError("llm 실패")
+
+    server.configure_llm(lambda: _FlakyLLM())
+    client = server.app.test_client()
+
+    session_id = client.post("/api/session").get_json()["sessionId"]
+    response = client.post(
+        f"/api/session/{session_id}/message",
+        json={"message": "실패 유도"},
+    )
+
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "error": "장면 이미지를 생성하지 못했습니다.",
+        "details": "llm 실패",
+    }

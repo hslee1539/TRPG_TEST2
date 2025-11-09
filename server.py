@@ -396,28 +396,17 @@ def _create_game_master() -> GameMaster:
 def _generate_scene_svg(session: Session, *, gm_text: str, player_input: str) -> str:
     llm = session.game_master.llm
     facts = session.game_master.state.facts
-    try:
-        if hasattr(llm, "draw_scene"):
-            svg = llm.draw_scene(
-                gm_text=gm_text,
-                player_input=player_input,
-                facts=facts,
-            )
-            if _is_valid_svg(svg):
-                return svg
-    except Exception:
-        pass
-    try:
-        fallback_svg = SimpleLocalLLM().draw_scene(
-            gm_text=gm_text,
-            player_input=player_input,
-            facts=facts,
-        )
-        if _is_valid_svg(fallback_svg):
-            return fallback_svg
-    except Exception:
-        pass
-    return SCENE_IMAGE_PLACEHOLDER
+    if not hasattr(llm, "draw_scene"):
+        raise RuntimeError("현재 LLM은 draw_scene 기능을 지원하지 않습니다.")
+
+    svg = llm.draw_scene(
+        gm_text=gm_text,
+        player_input=player_input,
+        facts=facts,
+    )
+    if not _is_valid_svg(svg):
+        raise ValueError("LLM이 유효한 SVG를 반환하지 않았습니다.")
+    return svg
 
 
 def configure_lmstudio_model(
@@ -461,7 +450,18 @@ def create_session():
     )
     session.record("gm", greeting)
     gm.state.add_fact(f"GM: {greeting}")
-    session.scene_image = _generate_scene_svg(session, gm_text=greeting, player_input="")
+    try:
+        session.scene_image = _generate_scene_svg(session, gm_text=greeting, player_input="")
+    except Exception as exc:
+        return (
+            jsonify(
+                {
+                    "error": "장면 이미지를 생성하지 못했습니다.",
+                    "details": str(exc),
+                }
+            ),
+            500,
+        )
     session.scene_alt_text = greeting
     _sessions[identifier] = session
     return jsonify(
@@ -489,11 +489,22 @@ def send_message(session_id: str):
     session.record("player", player_input)
     gm_response = session.game_master.respond(player_input)
     session.record("gm", gm_response)
-    session.scene_image = _generate_scene_svg(
-        session,
-        gm_text=gm_response,
-        player_input=player_input,
-    )
+    try:
+        session.scene_image = _generate_scene_svg(
+            session,
+            gm_text=gm_response,
+            player_input=player_input,
+        )
+    except Exception as exc:
+        return (
+            jsonify(
+                {
+                    "error": "장면 이미지를 생성하지 못했습니다.",
+                    "details": str(exc),
+                }
+            ),
+            500,
+        )
     session.scene_alt_text = gm_response or session.scene_alt_text
     return jsonify(
         {
