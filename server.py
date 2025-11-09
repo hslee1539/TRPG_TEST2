@@ -467,7 +467,9 @@ class MLXStableDiffusionSceneGenerator:
         except ImportError as exc:  # pragma: no cover - exercised only without mlx installed
             raise RuntimeError(
                 "mlx-examples 모듈을 찾을 수 없습니다. 먼저 'pip install mlx Pillow numpy'를 실행한 뒤, "
-                "https://github.com/ml-explore/mlx-examples 저장소를 클론하고 \"export PYTHONPATH='$(pwd):${PYTHONPATH}'\" 명령으로 경로를 추가했는지 확인하세요."
+                "https://github.com/ml-explore/mlx-examples 저장소를 클론하고 Stable Diffusion 예제 폴더의 요구 사항을 "
+                "'pip install -r stable_diffusion/requirements.txt'로 설치했는지, 그리고 \"export PYTHONPATH='$(pwd):${PYTHONPATH}'\" 명령으로 "
+                "경로를 추가했는지 확인하세요."
             ) from exc
 
         self.steps = steps
