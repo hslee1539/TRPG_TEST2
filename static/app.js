@@ -7,9 +7,7 @@ const restartButton = document.getElementById("restart");
 let sessionId = null;
 let sending = false;
 
-const PLACEHOLDER_IMAGE = sceneImage?.dataset.placeholder
-  ? JSON.parse(sceneImage.dataset.placeholder)
-  : "";
+const PLACEHOLDER_IMAGE = sceneImage?.dataset.placeholder || "";
 
 function appendMessage(role, message) {
   const wrapper = document.createElement("div");
@@ -33,17 +31,16 @@ function renderHistory(history = []) {
   history.forEach((item) => appendMessage(item.role, item.message));
 }
 
-function updateScene(sceneText, sceneSvg) {
+function updateScene(sceneText, sceneUri) {
   if (!sceneImage) {
     return;
   }
 
-  const nextSvg = sceneSvg || PLACEHOLDER_IMAGE;
-  sceneImage.innerHTML = nextSvg;
-  sceneImage.setAttribute(
-    "aria-label",
-    sceneText || "현재 장면을 표현한 일러스트"
-  );
+  const nextUri = sceneUri || PLACEHOLDER_IMAGE;
+  sceneImage.src = nextUri;
+  const altText = sceneText || "현재 장면을 표현한 일러스트";
+  sceneImage.setAttribute("alt", altText);
+  sceneImage.setAttribute("aria-label", altText);
 }
 
 async function startSession() {
@@ -51,7 +48,8 @@ async function startSession() {
   chatInput.focus();
   chatLog.innerHTML = "";
   if (sceneImage) {
-    sceneImage.innerHTML = PLACEHOLDER_IMAGE;
+    sceneImage.src = PLACEHOLDER_IMAGE;
+    sceneImage.setAttribute("alt", "현재 장면을 표현한 일러스트");
     sceneImage.setAttribute("aria-label", "현재 장면을 표현한 일러스트");
   }
 

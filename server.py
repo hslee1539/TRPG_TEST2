@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import io
+import inspect
 import os
+import random
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List
-
 from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, runtime_checkable
 
 from flask import Flask, jsonify, render_template, request
 
@@ -56,33 +59,19 @@ class SimpleLocalLLM:
         )
 
     def draw_scene(self, *, gm_text: str, player_input: str, facts: List[str]) -> str:
-        theme = _select_scene_theme(gm_text, player_input, "\n".join(facts))
-        palette = {
-            "town": ("#f97316", "#facc15"),
-            "forest": ("#16a34a", "#4ade80"),
-            "dungeon": ("#4b5563", "#9ca3af"),
-            "castle": ("#6366f1", "#a855f7"),
-        }
-        primary, accent = palette.get(theme, palette["town"])
+        svg = _build_keyword_scene_svg(gm_text=gm_text, player_input=player_input, facts=facts)
+        return svg
 
-        return """
-<svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img">""".strip() + (
-            ""
-            "\n  <defs>\n"
-            "    <linearGradient id=\"scene-gradient\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\">\n"
-            f"      <stop offset=\"0%\" stop-color=\"{primary}\" />\n"
-            f"      <stop offset=\"100%\" stop-color=\"{accent}\" />\n"
-            "    </linearGradient>\n"
-            "  </defs>\n"
-            "  <rect x=\"0\" y=\"0\" width=\"400\" height=\"300\" fill=\"url(#scene-gradient)\" rx=\"24\" />\n"
-            "  <g fill=\"rgba(255,255,255,0.18)\">\n"
-            "    <circle cx=\"60\" cy=\"70\" r=\"28\" />\n"
-            "    <circle cx=\"340\" cy=\"80\" r=\"32\" />\n"
-            "    <circle cx=\"210\" cy=\"220\" r=\"36\" />\n"
-            "  </g>\n"
-            f"{_render_scene_layer(theme, primary, accent)}\n"
-            "</svg>"
-        )
+
+@runtime_checkable
+class SceneGenerator(Protocol):
+    """Protocol describing an object capable of generating scene imagery."""
+
+    def generate(self, *, gm_text: str, player_input: str, facts: List[str]) -> str:
+        """Return a data URI containing the rendered scene image."""
+
+
+SceneGeneratorFactory = Callable[[], SceneGenerator]
 
 
 @dataclass
@@ -91,12 +80,14 @@ class Session:
 
     identifier: str
     game_master: GameMaster
+    scene_generator: SceneGenerator
     history: List[Dict[str, str]] = field(default_factory=list)
     scene_image: str = ""
     scene_alt_text: str = "현재 장면을 표현한 일러스트"
 
     def record(self, role: str, message: str) -> None:
         self.history.append({"role": role, "message": message})
+
 
 app = Flask(__name__)
 _sessions: Dict[str, Session] = {}
@@ -116,7 +107,47 @@ def _load_svg(name: str) -> str:
     return (_STATIC_DIR / name).read_text(encoding="utf-8")
 
 
-SCENE_IMAGE_PLACEHOLDER = _load_svg("scene-placeholder.svg")
+def _encode_svg_data_uri(svg: str) -> str:
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _encode_image_to_data_uri(image: Any) -> str:
+    """Encode a PIL image or array-like object into a PNG data URI."""
+
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover - only triggered without Pillow
+        raise RuntimeError(
+            "Pillow 패키지가 필요합니다. 'pip install Pillow' 명령으로 설치해 주세요."
+        ) from exc
+
+    if hasattr(image, "to_pil"):
+        image = image.to_pil()
+    elif not isinstance(image, Image.Image):
+        # Accept array-like results and convert to PIL.Image
+        if hasattr(image, "__array__"):
+            try:
+                import numpy as np
+            except ImportError as exc:  # pragma: no cover - requires numpy at runtime
+                raise RuntimeError(
+                    "numpy 패키지가 필요합니다. 'pip install numpy' 명령으로 설치해 주세요."
+                ) from exc
+
+            array = image.__array__()
+            image = Image.fromarray(np.asarray(array).clip(0, 255).astype("uint8"))
+        else:  # pragma: no cover - defensive fallback when pipeline returns bytes
+            raise TypeError("Stable Diffusion 결과를 이미지로 변환할 수 없습니다.")
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+SCENE_PLACEHOLDER_SVG = _load_svg("scene-placeholder.svg")
+SCENE_IMAGE_PLACEHOLDER = _encode_svg_data_uri(SCENE_PLACEHOLDER_SVG)
+
 
 _SCENE_KEYWORDS = [
     (
@@ -200,10 +231,13 @@ def _render_scene_layer(theme: str, primary: str, accent: str) -> str:
       <polygon points="178,140 146,210 210,210" fill="{primary}" opacity="0.85" />
     </g>
     <g>
-      <rect x="270" y="180" width="14" height="80" fill="#4d2c1d" />
-      <polygon points="277,130 248,200 308,200" fill="{accent}" opacity="0.85" />
+      <rect x="280" y="180" width="14" height="75" fill="#4d2c1d" />
+      <polygon points="287,130 250,195 320,195" fill="{accent}" opacity="0.88" />
     </g>
-    <circle cx="320" cy="90" r="36" fill="#fde68a" opacity="0.45" />
+  </g>
+  <g fill="rgba(255, 255, 255, 0.12)">
+    <circle cx="120" cy="120" r="42" />
+    <circle cx="300" cy="70" r="30" />
   </g>
 """.strip()
 
@@ -211,65 +245,100 @@ def _render_scene_layer(theme: str, primary: str, accent: str) -> str:
         return f"""
   <g>
     <rect x="0" y="200" width="400" height="100" fill="#1f2937" opacity="0.9" />
-    <rect x="130" y="120" width="140" height="160" rx="24" fill="#374151" />
-    <path d="M150 220 Q200 160 250 220" fill="#111827" />
-    <path d="M150 220 Q200 260 250 220" fill="#0f172a" opacity="0.7" />
-    <g fill="{accent}">
-      <circle cx="140" cy="160" r="10" />
-      <rect x="138" y="165" width="4" height="26" />
-      <circle cx="260" cy="160" r="10" />
-      <rect x="258" y="165" width="4" height="26" />
+    <rect x="80" y="160" width="240" height="90" rx="12" fill="{primary}" opacity="0.85" />
+    <g fill="rgba(0, 0, 0, 0.2)">
+      <rect x="100" y="180" width="30" height="40" />
+      <rect x="150" y="180" width="30" height="40" />
+      <rect x="200" y="180" width="30" height="40" />
+      <rect x="250" y="180" width="30" height="40" />
     </g>
-    <rect x="180" y="240" width="40" height="40" fill="{primary}" opacity="0.6" />
+    <circle cx="60" cy="90" r="28" fill="{accent}" opacity="0.6" />
+    <circle cx="340" cy="70" r="24" fill="{accent}" opacity="0.45" />
   </g>
 """.strip()
 
     if theme == "castle":
         return f"""
   <g>
-    <rect x="0" y="210" width="400" height="90" fill="#312e81" opacity="0.95" />
-    <rect x="60" y="130" width="60" height="170" fill="#4c1d95" />
-    <rect x="280" y="130" width="60" height="170" fill="#4c1d95" />
-    <rect x="120" y="180" width="160" height="120" fill="{primary}" />
-    <rect x="150" y="210" width="40" height="90" fill="#312e81" />
-    <rect x="210" y="210" width="40" height="90" fill="#312e81" />
-    <polygon points="90,130 90,100 120,100 120,130" fill="{accent}" />
-    <polygon points="310,130 310,100 340,100 340,130" fill="{accent}" />
-    <polygon points="200,120 180,90 220,90" fill="#c4b5fd" />
-    <path d="M110 180 L140 150 L170 180" fill="{primary}" opacity="0.8" />
-    <path d="M230 180 L260 150 L290 180" fill="{primary}" opacity="0.8" />
-    <circle cx="200" cy="120" r="16" fill="#fef3c7" opacity="0.6" />
+    <rect x="20" y="160" width="360" height="120" fill="{primary}" opacity="0.85" />
+    <g>
+      <rect x="40" y="120" width="60" height="80" fill="#312e81" />
+      <rect x="300" y="120" width="60" height="80" fill="#312e81" />
+      <rect x="160" y="100" width="80" height="110" fill="#3730a3" />
+      <polygon points="200,60 150,100 250,100" fill="{accent}" opacity="0.9" />
+    </g>
+    <rect x="185" y="150" width="30" height="60" rx="8" fill="#f5f3ff" opacity="0.85" />
+    <circle cx="320" cy="90" r="26" fill="{accent}" opacity="0.65" />
   </g>
+  <path d="M0 240 Q200 210 400 260" fill="#ede9fe" opacity="0.35" />
 """.strip()
 
-    # default town scene
     return f"""
   <g>
-    <rect x="0" y="220" width="400" height="80" fill="#92400e" opacity="0.9" />
+    <rect x="0" y="220" width="400" height="80" fill="#f97316" opacity="0.35" />
     <g>
-      <rect x="70" y="170" width="80" height="110" fill="{primary}" />
-      <polygon points="70,170 110,120 150,170" fill="{accent}" />
-      <rect x="95" y="220" width="30" height="60" fill="#78350f" />
-      <rect x="80" y="190" width="24" height="24" fill="#fed7aa" />
-      <rect x="116" y="190" width="24" height="24" fill="#fed7aa" />
+      <rect x="60" y="160" width="70" height="70" rx="12" fill="{primary}" opacity="0.92" />
+      <rect x="74" y="185" width="24" height="35" fill="#fde68a" opacity="0.9" />
     </g>
     <g>
-      <rect x="220" y="190" width="90" height="90" fill="#fb7185" />
-      <polygon points="220,190 265,140 310,190" fill="{accent}" />
-      <rect x="245" y="230" width="30" height="50" fill="#9f1239" />
-      <rect x="232" y="205" width="20" height="20" fill="#fecdd3" />
-      <rect x="278" y="205" width="20" height="20" fill="#fecdd3" />
+      <rect x="240" y="150" width="90" height="80" rx="14" fill="{accent}" opacity="0.88" />
+      <rect x="260" y="185" width="24" height="35" fill="#fef3c7" opacity="0.92" />
     </g>
-    <path d="M0 250 Q200 230 400 270" fill="#fde68a" opacity="0.35" />
-    <circle cx="320" cy="90" r="26" fill="#fde68a" opacity="0.5" />
+    <path d="M50 250 Q200 230 350 260" stroke="#fcd34d" stroke-width="6" fill="none" opacity="0.75" />
+    <circle cx="90" cy="110" r="26" fill="#fde68a" opacity="0.5" />
   </g>
 """.strip()
 
-def _is_valid_svg(svg: str | None) -> bool:
-    if not svg:
+
+def _build_keyword_scene_svg(*, gm_text: str, player_input: str, facts: Iterable[str]) -> str:
+    theme = _select_scene_theme(gm_text, player_input, "\n".join(facts))
+    palette = {
+        "town": ("#f97316", "#facc15"),
+        "forest": ("#16a34a", "#4ade80"),
+        "dungeon": ("#4b5563", "#9ca3af"),
+        "castle": ("#6366f1", "#a855f7"),
+    }
+    primary, accent = palette.get(theme, palette["town"])
+
+    return """
+<svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" role="img">""".strip() + (
+        ""
+        "\n  <defs>\n"
+        "    <linearGradient id=\"scene-gradient\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\">\n"
+        f"      <stop offset=\"0%\" stop-color=\"{primary}\" />\n"
+        f"      <stop offset=\"100%\" stop-color=\"{accent}\" />\n"
+        "    </linearGradient>\n"
+        "  </defs>\n"
+        "  <rect x=\"0\" y=\"0\" width=\"400\" height=\"300\" fill=\"url(#scene-gradient)\" rx=\"24\" />\n"
+        "  <g fill=\"rgba(255,255,255,0.18)\">\n"
+        "    <circle cx=\"60\" cy=\"70\" r=\"28\" />\n"
+        "    <circle cx=\"340\" cy=\"80\" r=\"32\" />\n"
+        "    <circle cx=\"210\" cy=\"220\" r=\"36\" />\n"
+        "  </g>\n"
+        f"{_render_scene_layer(theme, primary, accent)}\n"
+        "</svg>"
+    )
+
+
+class KeywordSceneGenerator:
+    """Default scene generator that returns themed SVG data URIs."""
+
+    def generate(self, *, gm_text: str, player_input: str, facts: List[str]) -> str:
+        svg = _build_keyword_scene_svg(gm_text=gm_text, player_input=player_input, facts=facts)
+        return _encode_svg_data_uri(svg)
+
+
+def _default_scene_generator_factory() -> SceneGenerator:
+    return KeywordSceneGenerator()
+
+
+_scene_generator_factory: SceneGeneratorFactory = _default_scene_generator_factory
+
+
+def _is_valid_data_uri(data: str | None) -> bool:
+    if not data:
         return False
-    cleaned = svg.strip().lower()
-    return cleaned.startswith("<svg") and "</svg>" in cleaned
+    return data.startswith("data:image/")
 
 
 def configure_llm(factory: LLMFactory) -> None:
@@ -283,6 +352,19 @@ def use_llm_instance(llm: Any) -> None:
     """Pin the server to an already-instantiated LLM object."""
 
     configure_llm(lambda: llm)
+
+
+def configure_scene_generator(factory: SceneGeneratorFactory) -> None:
+    """Configure the factory used to create scene generators for sessions."""
+
+    global _scene_generator_factory
+    _scene_generator_factory = factory
+
+
+def use_scene_generator(generator: SceneGenerator) -> None:
+    """Pin the server to an already-instantiated scene generator."""
+
+    configure_scene_generator(lambda: generator)
 
 
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
@@ -353,39 +435,116 @@ class LMStudioStoryteller:
         content = response.choices[0].message.content if response.choices else ""
         return str(content or "").strip()
 
-    def draw_scene(self, *, gm_text: str, player_input: str, facts: List[str]) -> str:
-        fact_summary = "\n".join(f"- {fact}" for fact in facts[-6:]) or "(기록 없음)"
-        system_prompt = (
-            "당신은 SVG 일러스트레이터입니다."
-            " 응답은 반드시 유효한 단일 <svg>...</svg> 마크업이어야 합니다."
-            " 배경, 기본 색상과 간단한 도형을 활용해 장면을 묘사하세요."
-            " 스크립트, 외부 참조, 설명 텍스트는 포함하지 마세요."
-            " 400x300 뷰박스를 사용하고 텍스트는 3줄 이내로 유지하세요."
+
+def _call_with_supported_kwargs(func: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+    """Call the function with only the keyword arguments it supports."""
+
+    signature = inspect.signature(func)
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in signature.parameters}
+    return func(*args, **filtered_kwargs)
+
+
+class MLXStableDiffusionSceneGenerator:
+    """Generate scene imagery using MLX Stable Diffusion with quantised weights."""
+
+    def __init__(
+        self,
+        model_path: str,
+        *,
+        quantize: bool = True,
+        steps: int = 30,
+        guidance_scale: float = 7.5,
+        negative_prompt: Optional[str] = None,
+        seed: Optional[int] = None,
+        width: int = 512,
+        height: int = 512,
+    ) -> None:
+        try:
+            from mlx_examples.stable_diffusion import StableDiffusionPipeline
+        except ImportError as exc:  # pragma: no cover - exercised only without mlx installed
+            raise RuntimeError(
+                "mlx-examples 패키지를 찾을 수 없습니다. 'pip install mlx mlx-examples Pillow numpy' 로 설치한 뒤 다시 시도해 주세요."
+            ) from exc
+
+        self.steps = steps
+        self.guidance_scale = guidance_scale
+        self.negative_prompt = (
+            negative_prompt
+            or "blurry, distorted, low quality, text, watermark, signature"
         )
-        user_prompt = (
-            "최근 GM 묘사: {gm}\n"
-            "플레이어 행동: {player}\n"
-            "중요 사실:\n{facts}\n\n"
-            "위 정보를 반영한 간결한 SVG를 그려주세요."
-        ).format(
-            gm=gm_text or "(없음)",
-            player=player_input or "(없음)",
-            facts=fact_summary,
-        )
-        response = self._client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=min(self.temperature, 0.6),
-            max_tokens=min(self.max_tokens * 2, 1200),
-        )
-        svg = response.choices[0].message.content if response.choices else ""
-        svg_text = str(svg or "").strip()
-        if not _is_valid_svg(svg_text):
-            raise ValueError("LM Studio가 SVG 응답을 반환하지 않았습니다.")
-        return svg_text
+        self.width = width
+        self.height = height
+        self._seed = seed
+        self._rng = random.Random(seed or random.randint(0, 2**31 - 1))
+
+        self._pipeline = self._load_pipeline(StableDiffusionPipeline, model_path, quantize)
+
+    @staticmethod
+    def _load_pipeline(pipeline_cls: Any, model_path: str, quantize: bool) -> Any:
+        load_attempts = []
+        if hasattr(pipeline_cls, "from_pretrained"):
+            load_attempts.append((pipeline_cls.from_pretrained, {}))
+        load_attempts.append((pipeline_cls, {}))
+
+        for loader, extra_kwargs in load_attempts:
+            for keyword in ("quantize", "quantized", "quantization", "use_quantization"):
+                kwargs = dict(extra_kwargs)
+                kwargs[keyword] = quantize
+                try:
+                    return _call_with_supported_kwargs(loader, model_path, **kwargs)
+                except TypeError:
+                    continue
+            try:
+                return _call_with_supported_kwargs(loader, model_path)
+            except TypeError:
+                continue
+        raise RuntimeError("Stable Diffusion 파이프라인을 초기화하지 못했습니다.")
+
+    def _next_seed(self) -> int:
+        if self._seed is not None:
+            return self._seed
+        return self._rng.randint(0, 2**31 - 1)
+
+    def _run_pipeline(self, prompt: str, seed: int) -> Any:
+        pipeline = self._pipeline
+        kwargs = {
+            "prompt": prompt,
+            "negative_prompt": self.negative_prompt,
+            "num_inference_steps": self.steps,
+            "guidance_scale": self.guidance_scale,
+            "seed": seed,
+            "height": self.height,
+            "width": self.width,
+        }
+
+        if hasattr(pipeline, "generate"):
+            result = _call_with_supported_kwargs(pipeline.generate, **kwargs)
+        else:
+            result = _call_with_supported_kwargs(pipeline, **kwargs)
+
+        if isinstance(result, (list, tuple)):
+            return result[0]
+        if hasattr(result, "images") and result.images:
+            return result.images[0]
+        return result
+
+    def _build_prompt(self, gm_text: str, player_input: str, facts: Iterable[str]) -> str:
+        fact_summary = ", ".join(facts[-6:]) if isinstance(facts, list) else ", ".join(list(facts)[-6:])
+        base_prompt = [
+            "detailed illustration, fantasy tabletop role playing scene",
+            gm_text or "mysterious scene",
+        ]
+        if player_input:
+            base_prompt.append(f"player action: {player_input}")
+        if fact_summary:
+            base_prompt.append(f"world facts: {fact_summary}")
+        return ", ".join(part for part in base_prompt if part)
+
+    def generate(self, *, gm_text: str, player_input: str, facts: List[str]) -> str:
+        prompt = self._build_prompt(gm_text, player_input, facts)
+        seed = self._next_seed()
+        raw_image = self._run_pipeline(prompt, seed)
+        return _encode_image_to_data_uri(raw_image)
 
 
 def _create_game_master() -> GameMaster:
@@ -393,20 +552,31 @@ def _create_game_master() -> GameMaster:
     return create_default_game_master(llm)
 
 
-def _generate_scene_svg(session: Session, *, gm_text: str, player_input: str) -> str:
-    llm = session.game_master.llm
-    facts = session.game_master.state.facts
-    if not hasattr(llm, "draw_scene"):
-        raise RuntimeError("현재 LLM은 draw_scene 기능을 지원하지 않습니다.")
+def _create_scene_generator() -> SceneGenerator:
+    generator = _scene_generator_factory()
+    if not isinstance(generator, SceneGenerator):
+        raise RuntimeError("장면 생성기가 generate(gm_text, player_input, facts) 메서드를 제공해야 합니다.")
+    return generator
 
-    svg = llm.draw_scene(
+
+def _generate_scene_image(
+    session: Session,
+    *,
+    gm_text: str,
+    player_input: str,
+) -> str:
+    generator = session.scene_generator
+    if not hasattr(generator, "generate"):
+        raise RuntimeError("현재 장면 생성기는 generate 메서드를 지원하지 않습니다.")
+
+    image = generator.generate(
         gm_text=gm_text,
         player_input=player_input,
-        facts=facts,
+        facts=session.game_master.state.facts,
     )
-    if not _is_valid_svg(svg):
-        raise ValueError("LLM이 유효한 SVG를 반환하지 않았습니다.")
-    return svg
+    if not _is_valid_data_uri(image):
+        raise ValueError("장면 생성기가 유효한 이미지 데이터 URI를 반환하지 않았습니다.")
+    return image
 
 
 def configure_lmstudio_model(
@@ -435,13 +605,47 @@ def configure_lmstudio_model(
     configure_llm(factory)
 
 
+def configure_mlx_stable_diffusion(
+    model_path: str,
+    *,
+    quantize: bool = True,
+    steps: int = 30,
+    guidance_scale: float = 7.5,
+    negative_prompt: Optional[str] = None,
+    seed: Optional[int] = None,
+    width: int = 512,
+    height: int = 512,
+) -> None:
+    """Configure the server to use an MLX Stable Diffusion scene generator."""
+
+    cache: Dict[str, SceneGenerator] = {}
+
+    def factory() -> SceneGenerator:
+        if "generator" not in cache:
+            cache["generator"] = MLXStableDiffusionSceneGenerator(
+                model_path,
+                quantize=quantize,
+                steps=steps,
+                guidance_scale=guidance_scale,
+                negative_prompt=negative_prompt,
+                seed=seed,
+                width=width,
+                height=height,
+            )
+        return cache["generator"]
+
+    configure_scene_generator(factory)
+
+
 @app.post("/api/session")
 def create_session():
     identifier = uuid.uuid4().hex
     gm = _create_game_master()
+    generator = _create_scene_generator()
     session = Session(
         identifier=identifier,
         game_master=gm,
+        scene_generator=generator,
         scene_image=SCENE_IMAGE_PLACEHOLDER,
     )
     greeting = (
@@ -451,7 +655,7 @@ def create_session():
     session.record("gm", greeting)
     gm.state.add_fact(f"GM: {greeting}")
     try:
-        session.scene_image = _generate_scene_svg(session, gm_text=greeting, player_input="")
+        session.scene_image = _generate_scene_image(session, gm_text=greeting, player_input="")
     except Exception as exc:
         return (
             jsonify(
@@ -490,7 +694,7 @@ def send_message(session_id: str):
     gm_response = session.game_master.respond(player_input)
     session.record("gm", gm_response)
     try:
-        session.scene_image = _generate_scene_svg(
+        session.scene_image = _generate_scene_image(
             session,
             gm_text=gm_response,
             player_input=player_input,
@@ -519,7 +723,7 @@ def send_message(session_id: str):
 
 @app.get("/")
 def index():
-    return render_template("index.html", placeholder_svg=SCENE_IMAGE_PLACEHOLDER)
+    return render_template("index.html", placeholder_image=SCENE_IMAGE_PLACEHOLDER)
 
 
 if __name__ == "__main__":
@@ -535,6 +739,30 @@ if __name__ == "__main__":
         "--api-key",
         help="LM Studio OpenAI 호환 서버에 전달할 API 키 (기본: 환경변수 또는 lm-studio)",
     )
+    parser.add_argument("--sd-model", help="MLX Stable Diffusion 양자화 모델 경로")
+    parser.add_argument("--sd-steps", type=int, default=30, help="Stable Diffusion 추론 스텝 수")
+    parser.add_argument(
+        "--sd-guidance",
+        type=float,
+        default=7.5,
+        help="Stable Diffusion guidance scale 값",
+    )
+    parser.add_argument(
+        "--sd-negative",
+        help="Stable Diffusion에 사용할 네거티브 프롬프트",
+    )
+    parser.add_argument(
+        "--sd-seed",
+        type=int,
+        help="Stable Diffusion 시드 (지정하지 않으면 매번 무작위)",
+    )
+    parser.add_argument("--sd-width", type=int, default=512)
+    parser.add_argument("--sd-height", type=int, default=512)
+    parser.add_argument(
+        "--sd-no-quantize",
+        action="store_true",
+        help="양자화 모델을 사용하지 않도록 설정 (기본은 사용)",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=3000)
     args = parser.parse_args()
@@ -546,6 +774,18 @@ if __name__ == "__main__":
             max_tokens=args.max_tokens,
             api_base=args.api_base,
             api_key=args.api_key,
+        )
+
+    if args.sd_model:
+        configure_mlx_stable_diffusion(
+            args.sd_model,
+            quantize=not args.sd_no_quantize,
+            steps=args.sd_steps,
+            guidance_scale=args.sd_guidance,
+            negative_prompt=args.sd_negative,
+            seed=args.sd_seed,
+            width=args.sd_width,
+            height=args.sd_height,
         )
 
     app.run(host=args.host, port=args.port, debug=False)

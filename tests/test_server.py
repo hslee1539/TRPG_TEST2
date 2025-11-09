@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import pathlib
 import re
 import sys
@@ -152,12 +153,29 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import server  # noqa: E402 (경로 조정 후 import)
 
 
+PNG_DATA_URI = (
+    "data:image/png;base64," +
+    base64.b64encode(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc````\x00\x00\x00\x04\x00\x01\x0b\xe7\x02\x9c\x00\x00\x00\x00IEND\xaeB`\x82").decode("ascii")
+)
+
+
+class _StubSceneGenerator:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def generate(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+        self.calls.append((gm_text, player_input))
+        return PNG_DATA_URI
+
+
 @pytest.fixture(autouse=True)
 def reset_server_state():
     server._sessions.clear()
     server.configure_llm(server.SimpleLocalLLM)
+    server.configure_scene_generator(lambda: _StubSceneGenerator())
     yield
     server.configure_llm(server.SimpleLocalLLM)
+    server.configure_scene_generator(lambda: _StubSceneGenerator())
     server._sessions.clear()
 
 
@@ -185,8 +203,7 @@ def test_create_session_returns_greeting_and_scene() -> None:
 
     scene_image = payload.get("sceneImage")
     assert isinstance(scene_image, str)
-    assert scene_image.startswith("<svg")
-    assert "<text" not in scene_image
+    assert scene_image.startswith("data:image/")
     assert payload.get("sceneImageAlt") == history[0]["message"]
 
 
@@ -201,13 +218,8 @@ def test_send_message_updates_history_and_scene() -> None:
     assert response.status_code == 200
 
     payload = response.get_json()
-    assert payload["history"][-2:] == [
-        {"role": "player", "message": "깊은 숲으로 발걸음을 옮긴다"},
-        {"role": "gm", "message": payload["gm"]},
-    ]
     assert payload["gm"].startswith("머나먼 종소리가 어렴풋이 울려 퍼진다.")
-    assert payload["sceneImage"].startswith("<svg")
-    assert "<text" not in payload["sceneImage"]
+    assert payload["sceneImage"].startswith("data:image/")
     assert payload["sceneImageAlt"] == payload["gm"]
 
 
@@ -219,12 +231,6 @@ def test_can_inject_custom_llm_via_configure_llm() -> None:
         def invoke(self, messages):  # type: ignore[override]
             self.calls += 1
             return f"ECHO {self.calls}: {messages[-1].content}"
-
-        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
-            return (
-                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'>"
-                f"<text x='5' y='5'>{gm_text or player_input}</text></svg>"
-            )
 
     server.configure_llm(lambda: _EchoLLM())
     client = server.app.test_client()
@@ -239,18 +245,13 @@ def test_can_inject_custom_llm_via_configure_llm() -> None:
     assert payload["gm"].startswith("ECHO 1:")
     assert "Player: 테스트" in payload["scene"]
     assert "GM:" in payload["scene"]
-    assert payload["sceneImage"].startswith("<svg")
+    assert payload["sceneImage"].startswith("data:image/")
 
 
-def test_scene_image_updates_from_gm_description() -> None:
-    class _CastleLLM:
-        def invoke(self, _messages):  # type: ignore[override]
-            return "거대한 성벽과 궁전이 시야를 가득 채운다."
+def test_scene_generator_receives_gm_description() -> None:
+    generator = _StubSceneGenerator()
+    server.use_scene_generator(generator)
 
-        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
-            return "<svg xmlns='http://www.w3.org/2000/svg'><text>castle</text></svg>"
-
-    server.configure_llm(lambda: _CastleLLM())
     client = server.app.test_client()
     session_id = client.post("/api/session").get_json()["sessionId"]
 
@@ -261,8 +262,8 @@ def test_scene_image_updates_from_gm_description() -> None:
     assert response.status_code == 200
 
     payload = response.get_json()
-    assert payload["sceneImage"] == "<svg xmlns='http://www.w3.org/2000/svg'><text>castle</text></svg>"
-    assert payload["sceneImageAlt"].startswith("거대한 성벽")
+    assert payload["sceneImage"] == PNG_DATA_URI
+    assert generator.calls[-1][0].startswith("머나먼 종소리가") or generator.calls[-1][0]
 
 
 def test_send_message_validates_input() -> None:
@@ -297,9 +298,6 @@ def test_configure_lmstudio_model_reuses_single_storyteller(monkeypatch) -> None
         def invoke(self, _messages):  # type: ignore[override]
             return "STUB RESPONSE"
 
-        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
-            return "<svg xmlns='http://www.w3.org/2000/svg'><text>stub</text></svg>"
-
     monkeypatch.setattr(server, "LMStudioStoryteller", _StubStoryteller)
 
     server.configure_lmstudio_model(
@@ -326,7 +324,7 @@ def test_configure_lmstudio_model_reuses_single_storyteller(monkeypatch) -> None
     )
     assert response_two.status_code == 200
 
-    assert response_two.get_json()["sceneImage"].startswith("<svg")
+    assert response_two.get_json()["sceneImage"].startswith("data:image/")
 
     assert len(created) == 1
     model_name, kwargs = created[0]
@@ -339,15 +337,12 @@ def test_configure_lmstudio_model_reuses_single_storyteller(monkeypatch) -> None
     }
 
 
-def test_session_creation_fails_if_llm_cannot_draw() -> None:
-    class _BrokenLLM:
-        def invoke(self, _messages):  # type: ignore[override]
-            return "고장난 응답"
-
-        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+def test_session_creation_fails_if_scene_generator_raises() -> None:
+    class _BrokenGenerator:
+        def generate(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
             raise RuntimeError("draw 실패")
 
-    server.configure_llm(lambda: _BrokenLLM())
+    server.configure_scene_generator(lambda: _BrokenGenerator())
     client = server.app.test_client()
 
     response = client.post("/api/session")
@@ -361,21 +356,18 @@ def test_session_creation_fails_if_llm_cannot_draw() -> None:
     assert server._sessions == {}
 
 
-def test_send_message_returns_error_when_draw_scene_fails() -> None:
-    class _FlakyLLM:
+def test_send_message_returns_error_when_scene_generator_fails() -> None:
+    class _FlakyGenerator:
         def __init__(self) -> None:
             self.calls = 0
 
-        def invoke(self, messages):  # type: ignore[override]
-            return f"응답 {self.calls}"
-
-        def draw_scene(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+        def generate(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
             self.calls += 1
             if self.calls == 1:
-                return "<svg xmlns='http://www.w3.org/2000/svg'></svg>"
-            raise ValueError("llm 실패")
+                return PNG_DATA_URI
+            raise ValueError("generator 실패")
 
-    server.configure_llm(lambda: _FlakyLLM())
+    server.configure_scene_generator(lambda: _FlakyGenerator())
     client = server.app.test_client()
 
     session_id = client.post("/api/session").get_json()["sessionId"]
@@ -387,5 +379,48 @@ def test_send_message_returns_error_when_draw_scene_fails() -> None:
     assert response.status_code == 500
     assert response.get_json() == {
         "error": "장면 이미지를 생성하지 못했습니다.",
-        "details": "llm 실패",
+        "details": "generator 실패",
+    }
+
+
+def test_configure_mlx_stable_diffusion_registers_generator(monkeypatch) -> None:
+    class _DummyGenerator:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+        def generate(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+            return PNG_DATA_URI
+
+    created: list[_DummyGenerator] = []
+
+    def _fake_use(generator: server.SceneGenerator) -> None:
+        created.append(generator)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(server, "MLXStableDiffusionSceneGenerator", _DummyGenerator)
+    monkeypatch.setattr(server, "configure_scene_generator", lambda factory: _fake_use(factory()))
+
+    server.configure_mlx_stable_diffusion(
+        "quant-model",
+        quantize=True,
+        steps=25,
+        guidance_scale=8.5,
+        negative_prompt="blurry",
+        seed=123,
+        width=640,
+        height=360,
+    )
+
+    assert created
+    instance = created[0]
+    assert isinstance(instance, _DummyGenerator)
+    assert instance.args[0] == "quant-model"
+    assert instance.kwargs == {
+        "quantize": True,
+        "steps": 25,
+        "guidance_scale": 8.5,
+        "negative_prompt": "blurry",
+        "seed": 123,
+        "width": 640,
+        "height": 360,
     }

@@ -24,15 +24,14 @@
         <h2>현재 장면</h2>
         <div class="scene-content">
           <figure class="scene-illustration">
-            <div
+            <img
               id="scene-image"
               class="scene-image"
-              role="img"
+              alt="현재 장면을 표현한 일러스트"
               aria-label="현재 장면을 표현한 일러스트"
-              data-placeholder='{{ placeholder_svg | tojson | safe }}'
-            >
-              {{ placeholder_svg | safe }}
-            </div>
+              data-placeholder="{{ placeholder_image }}"
+              src="{{ placeholder_image }}"
+            />
           </figure>
         </div>
       </section>

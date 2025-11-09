@@ -50,7 +50,40 @@ CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶�
      ```
      API 서버 주소와 키는 생략 시 환경변수(`LM_STUDIO_API_BASE`, `LM_STUDIO_API_KEY`)나 기본값을 따릅니다. 서버는 단일 LLM 인스턴스를 재사용하므로 브라우저 새 세션에서도 모델이 즉시 응답합니다.
 3. 웹 브라우저에서 [http://localhost:3000](http://localhost:3000)으로 접속하면 새로운 세션이 자동으로 시작되고, 채팅 UI를 통해 TRPG를 진행할 수 있습니다.
-  - "새로 시작" 버튼을 누르면 현재 세션이 초기화됩니다.
-  - 세션 동안의 대화와 장면 요약은 페이지 내에서 계속 업데이트됩니다.
-- 게임 마스터의 묘사, 플레이어의 행동, 최근 사실을 취합해 LLM이 즉석에서 SVG 일러스트를 그린 뒤 화면에 렌더링합니다. LM Studio 모델을 지정하면 동일한 모델이 텍스트와 이미지를 모두 생성합니다.
-- 활성화된 LLM이 SVG 생성을 담당하며, 유효한 `<svg>...</svg>`를 반환하지 못하면 API 요청이 500 오류로 종료됩니다.
+   - "새로 시작" 버튼을 누르면 현재 세션이 초기화됩니다.
+   - 세션 동안의 대화와 장면 요약은 페이지 내에서 계속 업데이트됩니다.
+   - 게임 마스터의 묘사, 플레이어의 행동, 최근 사실을 조합한 프롬프트로 MLX Stable Diffusion이 양자화된 모델을 통해 PNG 이미지를 생성하고, 해당 이미지를 브라우저에 즉시 렌더링합니다.
+   - 장면 생성이 실패하면 API는 500 상태 코드와 함께 오류 메시지를 반환하며, 이때는 Stable Diffusion 구성을 확인해야 합니다.
+
+### MLX Stable Diffusion으로 장면 그리기
+
+`server.py`는 기본적으로 키워드 기반 SVG 데이터 URI를 그리는 로컬 생성기를 사용합니다. 실제 Stable Diffusion 출력을 사용하려면 Apple MLX 환경이 필요하며 아래 절차를 따르세요.
+
+1. macOS에서 다음 패키지를 설치합니다.
+   ```bash
+   pip install mlx mlx-examples Pillow numpy
+   ```
+2. MLX 예제 저장소의 안정화된 양자화 모델을 다운로드하거나 직접 변환합니다. 예를 들어 [`mlx-examples`](https://github.com/ml-explore/mlx-examples)의 `stable_diffusion` 스크립트로 `--quantize` 옵션을 사용해 모델을 준비할 수 있습니다.
+3. 서버 실행 시 Stable Diffusion 관련 옵션을 전달합니다.
+   ```bash
+   python server.py \
+     --model "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF" \
+     --sd-model "/path/to/stable-diffusion-quantized" \
+     --sd-steps 35 \
+     --sd-guidance 7.0 \
+     --sd-negative "blurry, text, watermark" \
+     --sd-width 768 \
+     --sd-height 512
+   ```
+   - `--sd-model`은 양자화된 Stable Diffusion 모델 폴더 혹은 체크포인트 경로입니다.
+   - `--sd-steps`, `--sd-guidance`, `--sd-negative`, `--sd-width`, `--sd-height`, `--sd-seed`로 세부 파라미터를 조정할 수 있습니다.
+   - `--sd-no-quantize`를 지정하면 양자화 옵션을 비활성화할 수 있지만, 기본값은 양자화를 사용하도록 설정되어 있습니다.
+
+Stable Diffusion을 활성화하면 서버는 단일 파이프라인 인스턴스를 재사용해 매 요청마다 장면 이미지를 생성합니다. 출력은 PNG 데이터 URI 형태로 브라우저에 전달됩니다.
+
+## 테스트
+
+모든 기능을 검증하려면 다음 명령을 사용하세요.
+```bash
+pytest
+```
