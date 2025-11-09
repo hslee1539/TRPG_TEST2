@@ -424,3 +424,31 @@ def test_configure_mlx_stable_diffusion_registers_generator(monkeypatch) -> None
         "width": 640,
         "height": 360,
     }
+
+
+def test_resolve_sd_model_respects_disable(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_MODEL", raising=False)
+    args = types.SimpleNamespace(sd_disable=True, sd_model=None, model="any")
+
+    assert server._resolve_sd_model(args) is None
+
+
+def test_resolve_sd_model_prefers_cli_value(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_MODEL", raising=False)
+    args = types.SimpleNamespace(sd_disable=False, sd_model="/cli/path", model="any")
+
+    assert server._resolve_sd_model(args) == "/cli/path"
+
+
+def test_resolve_sd_model_reads_environment(monkeypatch) -> None:
+    monkeypatch.setenv("MLX_SD_MODEL", "/env/path")
+    args = types.SimpleNamespace(sd_disable=False, sd_model=None, model=None)
+
+    assert server._resolve_sd_model(args) == "/env/path"
+
+
+def test_resolve_sd_model_defaults_when_model_configured(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_MODEL", raising=False)
+    args = types.SimpleNamespace(sd_disable=False, sd_model=None, model="lmstudio")
+
+    assert server._resolve_sd_model(args) == server.DEFAULT_SD_MODEL_ID

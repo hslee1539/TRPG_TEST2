@@ -335,6 +335,9 @@ def _default_scene_generator_factory() -> SceneGenerator:
 _scene_generator_factory: SceneGeneratorFactory = _default_scene_generator_factory
 
 
+DEFAULT_SD_MODEL_ID = "mlx-community/stable-diffusion-v1-5-diffusers"
+
+
 def _is_valid_data_uri(data: str | None) -> bool:
     if not data:
         return False
@@ -638,6 +641,25 @@ def configure_mlx_stable_diffusion(
     configure_scene_generator(factory)
 
 
+def _resolve_sd_model(args: argparse.Namespace) -> Optional[str]:
+    """Derive the Stable Diffusion 모델 경로 or None if 비활성화."""
+
+    if getattr(args, "sd_disable", False):
+        return None
+
+    if getattr(args, "sd_model", None):
+        return args.sd_model
+
+    env_model = os.getenv("MLX_SD_MODEL")
+    if env_model:
+        return env_model
+
+    if getattr(args, "model", None):
+        return DEFAULT_SD_MODEL_ID
+
+    return None
+
+
 @app.post("/api/session")
 def create_session():
     identifier = uuid.uuid4().hex
@@ -764,6 +786,13 @@ if __name__ == "__main__":
         action="store_true",
         help="양자화 모델을 사용하지 않도록 설정 (기본은 사용)",
     )
+    parser.add_argument(
+        "--sd-disable",
+        action="store_true",
+        help=(
+            "Stable Diffusion 기반 장면 생성을 비활성화하고 SVG 키워드 생성기로 되돌립니다."
+        ),
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=3000)
     args = parser.parse_args()
@@ -777,9 +806,10 @@ if __name__ == "__main__":
             api_key=args.api_key,
         )
 
-    if args.sd_model:
+    resolved_sd_model = _resolve_sd_model(args)
+    if resolved_sd_model:
         configure_mlx_stable_diffusion(
-            args.sd_model,
+            resolved_sd_model,
             quantize=not args.sd_no_quantize,
             steps=args.sd_steps,
             guidance_scale=args.sd_guidance,
