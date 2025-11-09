@@ -59,12 +59,19 @@ CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶�
 
 `server.py`는 기본적으로 키워드 기반 SVG 데이터 URI를 그리는 로컬 생성기를 사용합니다. 실제 Stable Diffusion 출력을 사용하려면 Apple MLX 환경이 필요하며 아래 절차를 따르세요.
 
-1. macOS에서 다음 패키지를 설치합니다.
+1. macOS에서 기본 의존성을 설치합니다.
    ```bash
-   pip install mlx mlx-examples Pillow numpy
+   pip install mlx Pillow numpy
    ```
-2. MLX 예제 저장소의 안정화된 양자화 모델을 다운로드하거나 직접 변환합니다. 예를 들어 [`mlx-examples`](https://github.com/ml-explore/mlx-examples)의 `stable_diffusion` 스크립트로 `--quantize` 옵션을 사용해 모델을 준비할 수 있습니다.
-3. 서버 실행 시 Stable Diffusion 관련 옵션을 전달합니다.
+2. MLX 예제 저장소를 준비합니다. `mlx-examples`는 PyPI에 게시되어 있지 않으므로 직접 클론해 설치해야 합니다.
+   ```bash
+   git clone https://github.com/ml-explore/mlx-examples.git
+   cd mlx-examples
+   pip install -e .
+   ```
+   또는 저장소 루트를 `PYTHONPATH`에 추가해 `mlx_examples` 모듈을 찾을 수 있도록 설정하세요.
+3. MLX 예제 저장소의 안정화된 양자화 모델을 다운로드하거나 직접 변환합니다. 예를 들어 [`mlx-examples`](https://github.com/ml-explore/mlx-examples)의 `stable_diffusion` 스크립트로 `--quantize` 옵션을 사용해 모델을 준비할 수 있습니다.
+4. 서버 실행 시 Stable Diffusion 관련 옵션을 전달합니다.
    ```bash
    python server.py \
      --model "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF" \
