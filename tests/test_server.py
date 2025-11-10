@@ -4,7 +4,9 @@ import json
 import threading
 from http.client import HTTPConnection
 
-from server import TRPGHTTPServer, create_app
+import pytest
+
+from server import GameMasterError, TRPGHTTPServer, create_app
 
 
 class DummyGameMaster:
@@ -23,6 +25,11 @@ class DummyGameMaster:
 
 def _factory() -> DummyGameMaster:
     return DummyGameMaster()
+
+
+class FailingGameMaster(DummyGameMaster):
+    def respond(self, message: str) -> str:  # noqa: D401 - 테스트용 더미
+        raise RuntimeError("No models loaded")
 
 
 def test_app_create_session() -> None:
@@ -55,6 +62,17 @@ def test_app_unknown_session_raises() -> None:
         raise AssertionError("KeyError가 발생해야 합니다.")
 
 
+def test_app_send_message_wraps_errors() -> None:
+    app = create_app(factory=FailingGameMaster)
+    session = app.create_session()
+
+    with pytest.raises(GameMasterError) as excinfo:
+        app.send_message(session["session_id"], "테스트")
+
+    assert "게임 마스터가 응답을 생성하지 못했습니다." in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
 def test_http_endpoints() -> None:
     app = create_app(factory=_factory)
     server = TRPGHTTPServer(("127.0.0.1", 0), app)
@@ -82,6 +100,39 @@ def test_http_endpoints() -> None:
         assert response.status == 200
         assert message_body["response"] == "응답: 문을 닫는다"
         assert "문을 닫는다" in message_body["scene"]
+    finally:
+        conn.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+def test_http_returns_bad_gateway_on_game_master_error() -> None:
+    app = create_app(factory=FailingGameMaster)
+    server = TRPGHTTPServer(("127.0.0.1", 0), app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    host, port = server.server_address
+    conn = HTTPConnection(host, port)
+
+    try:
+        conn.request("POST", "/api/session")
+        response = conn.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        session_id = body["session_id"]
+
+        conn.request(
+            "POST",
+            f"/api/session/{session_id}/message",
+            body=json.dumps({"message": "문을 연다"}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 502
+        assert payload["detail"].startswith("게임 마스터가 응답을 생성하지 못했습니다.")
     finally:
         conn.close()
         server.shutdown()

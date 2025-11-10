@@ -48,6 +48,10 @@ class SessionStore:
             return self._sessions[session_id]
 
 
+class GameMasterError(RuntimeError):
+    """게임 마스터가 응답 생성에 실패했을 때 사용되는 예외."""
+
+
 class WebApp:
     """웹 요청을 처리하는 순수 파이썬 애플리케이션."""
 
@@ -63,7 +67,10 @@ class WebApp:
         if not message:
             raise ValueError("메시지는 비어 있을 수 없습니다.")
         game_master = self._store.get(session_id)
-        response = game_master.respond(message)
+        try:
+            response = game_master.respond(message)
+        except Exception as exc:
+            raise GameMasterError("게임 마스터가 응답을 생성하지 못했습니다. 모델 구성을 확인하세요.") from exc
         return {"response": response, "scene": game_master.render_scene()}
 
     @staticmethod
@@ -130,6 +137,9 @@ class TRPGRequestHandler(BaseHTTPRequestHandler):
                 return _json_error(HTTPStatus.NOT_FOUND, str(exc))
             except ValueError as exc:
                 return _json_error(HTTPStatus.BAD_REQUEST, str(exc))
+            except GameMasterError as exc:
+                self.log_error("Game master failure: %s", exc)
+                return _json_error(HTTPStatus.BAD_GATEWAY, str(exc))
             return _json_response(payload)
 
         return _json_error(HTTPStatus.NOT_FOUND, "지원하지 않는 경로입니다.")
