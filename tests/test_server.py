@@ -452,3 +452,55 @@ def test_resolve_sd_model_defaults_when_model_configured(monkeypatch) -> None:
     args = types.SimpleNamespace(sd_disable=False, sd_model=None, model="lmstudio")
 
     assert server._resolve_sd_model(args) == server.DEFAULT_SD_MODEL_ID
+
+
+def test_import_mlx_sd_pipeline_prefers_pipeline_module(monkeypatch) -> None:
+    root_package = types.ModuleType("mlx_examples")
+    root_package.__path__ = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples", root_package)
+
+    sd_package = types.ModuleType("mlx_examples.stable_diffusion")
+    sd_package.__path__ = []  # type: ignore[attr-defined]
+    root_package.stable_diffusion = sd_package  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples.stable_diffusion", sd_package)
+
+    pipeline_module = types.ModuleType("mlx_examples.stable_diffusion.pipeline")
+    sentinel = object()
+    pipeline_module.StableDiffusionPipeline = sentinel  # type: ignore[attr-defined]
+    sd_package.pipeline = pipeline_module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples.stable_diffusion.pipeline", pipeline_module)
+
+    assert server._import_mlx_stable_diffusion_pipeline_class() is sentinel
+
+
+def test_import_mlx_sd_pipeline_falls_back_to_package(monkeypatch) -> None:
+    root_package = types.ModuleType("mlx_examples")
+    root_package.__path__ = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples", root_package)
+
+    sd_package = types.ModuleType("mlx_examples.stable_diffusion")
+    sd_package.__path__ = []  # type: ignore[attr-defined]
+    root_package.stable_diffusion = sd_package  # type: ignore[attr-defined]
+    class _DummyPipeline:  # pragma: no cover - trivial definition
+        pass
+
+    sd_package.StableDiffusionPipeline = _DummyPipeline  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples.stable_diffusion", sd_package)
+
+    models_package = types.ModuleType("mlx_examples.models")
+    models_package.__path__ = []  # type: ignore[attr-defined]
+    root_package.models = models_package  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples.models", models_package)
+
+    models_sd_package = types.ModuleType("mlx_examples.models.stable_diffusion")
+    models_sd_package.__path__ = []  # type: ignore[attr-defined]
+    models_package.stable_diffusion = models_sd_package  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlx_examples.models.stable_diffusion", models_sd_package)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "mlx_examples.models.stable_diffusion.pipeline",
+        types.ModuleType("mlx_examples.models.stable_diffusion.pipeline"),
+    )
+
+    assert server._import_mlx_stable_diffusion_pipeline_class() is _DummyPipeline

@@ -71,6 +71,13 @@ CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶�
    export PYTHONPATH="$(pwd):${PYTHONPATH}"
    ```
    루트 디렉터리에 `requirements.txt` 파일이 없으므로 Stable Diffusion 예제 폴더의 요구 사항 파일을 직접 설치해야 합니다. 위 명령은 예제 저장소 의존성을 설치하고 현재 셸 세션에서 `mlx_examples` 모듈을 찾을 수 있도록 경로를 노출합니다.
+   `StableDiffusionPipeline` 클래스를 찾을 수 있는지 아래와 같이 확인하면 경로가 올바르게 설정됐는지 빠르게 검증할 수 있습니다.
+   ```bash
+   python - <<'PY'
+   from importlib import import_module
+   import_module("mlx_examples.stable_diffusion.pipeline").StableDiffusionPipeline
+   PY
+   ```
 3. MLX 예제 저장소의 안정화된 양자화 모델을 다운로드하거나 직접 변환합니다. 예를 들어 [`mlx-examples`](https://github.com/ml-explore/mlx-examples)의 `stable_diffusion` 스크립트로 `--quantize` 옵션을 사용해 모델을 준비할 수 있습니다.
 4. 서버 실행 시 Stable Diffusion 관련 옵션을 전달합니다. `--sd-model`을 생략하면
    LM Studio 모델을 지정했을 때 기본값으로 `mlx-community/stable-diffusion-v1-5-diffusers`

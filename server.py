@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib
 import io
 import inspect
 import os
@@ -147,6 +148,40 @@ def _encode_image_to_data_uri(image: Any) -> str:
 
 SCENE_PLACEHOLDER_SVG = _load_svg("scene-placeholder.svg")
 SCENE_IMAGE_PLACEHOLDER = _encode_svg_data_uri(SCENE_PLACEHOLDER_SVG)
+
+
+_MLX_SD_PIPELINE_CANDIDATES: List[tuple[str, str]] = [
+    ("mlx_examples.stable_diffusion.pipeline", "StableDiffusionPipeline"),
+    ("mlx_examples.stable_diffusion", "StableDiffusionPipeline"),
+    ("mlx_examples.models.stable_diffusion.pipeline", "StableDiffusionPipeline"),
+]
+
+
+def _import_mlx_stable_diffusion_pipeline_class() -> Any:
+    """Return the StableDiffusionPipeline class from the installed mlx-examples."""
+
+    errors: List[str] = []
+    for module_name, attr_name in _MLX_SD_PIPELINE_CANDIDATES:
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            errors.append(f"{module_name}: {exc}")
+            continue
+        attr = getattr(module, attr_name, None)
+        if attr is not None:
+            return attr
+        errors.append(f"{module_name}.{attr_name} 속성이 없습니다.")
+
+    tried = ", ".join(
+        f"{module}.{attr}" for module, attr in _MLX_SD_PIPELINE_CANDIDATES
+    )
+    details = "; ".join(errors)
+    raise ImportError(
+        "StableDiffusionPipeline 클래스를 찾을 수 없습니다. "
+        "mlx-examples 저장소가 최신인지와 'export PYTHONPATH=\"$(pwd):${PYTHONPATH}\"' 명령으로 "
+        "경로를 추가했는지 확인한 뒤 다시 시도하세요. "
+        f"시도한 위치: {tried}. 상세: {details}"
+    )
 
 
 _SCENE_KEYWORDS = [
@@ -463,13 +498,14 @@ class MLXStableDiffusionSceneGenerator:
         height: int = 512,
     ) -> None:
         try:
-            from mlx_examples.stable_diffusion import StableDiffusionPipeline
+            StableDiffusionPipeline = _import_mlx_stable_diffusion_pipeline_class()
         except ImportError as exc:  # pragma: no cover - exercised only without mlx installed
             raise RuntimeError(
-                "mlx-examples 모듈을 찾을 수 없습니다. 먼저 'pip install mlx Pillow numpy'를 실행한 뒤, "
-                "https://github.com/ml-explore/mlx-examples 저장소를 클론하고 Stable Diffusion 예제 폴더의 요구 사항을 "
-                "'pip install -r stable_diffusion/requirements.txt'로 설치했는지, 그리고 \"export PYTHONPATH='$(pwd):${PYTHONPATH}'\" 명령으로 "
-                "경로를 추가했는지 확인하세요."
+                "Stable Diffusion 파이프라인 클래스를 찾을 수 없습니다. 먼저 'pip install mlx Pillow numpy'를 실행하고 "
+                "https://github.com/ml-explore/mlx-examples 저장소를 클론한 뒤, "
+                "'pip install -r stable_diffusion/requirements.txt'로 의존성을 설치했는지 확인하세요. 마지막으로 "
+                "mlx-examples 루트에서 \"export PYTHONPATH='$(pwd):${PYTHONPATH}'\" 명령을 실행해 파이프라인 모듈(예: "
+                "mlx_examples.stable_diffusion.pipeline)이 노출되는지 검증하세요."
             ) from exc
 
         self.steps = steps
