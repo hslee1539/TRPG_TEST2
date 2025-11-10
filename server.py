@@ -150,18 +150,51 @@ SCENE_PLACEHOLDER_SVG = _load_svg("scene-placeholder.svg")
 SCENE_IMAGE_PLACEHOLDER = _encode_svg_data_uri(SCENE_PLACEHOLDER_SVG)
 
 
-_MLX_SD_PIPELINE_CANDIDATES: List[tuple[str, str]] = [
-    ("mlx_examples.stable_diffusion.pipeline", "StableDiffusionPipeline"),
-    ("mlx_examples.stable_diffusion", "StableDiffusionPipeline"),
-    ("mlx_examples.models.stable_diffusion.pipeline", "StableDiffusionPipeline"),
+
+def _parse_module_attr(path: str) -> tuple[str, str]:
+    """Split a module path and attribute name."""
+
+    if ":" in path:
+        module_name, attr_name = path.split(":", 1)
+        module_name = module_name.strip()
+        attr_name = attr_name.strip()
+    else:
+        module_name, _, attr_name = path.rpartition(".")
+    if not module_name or not attr_name:
+        raise ValueError(
+            "경로는 'module.submodule:ClassName' 형식이어야 합니다."
+        )
+    return module_name, attr_name
+
+
+_MLX_SD_PIPELINE_CANDIDATES: List[str] = [
+    "mlx_examples.stable_diffusion.pipeline:StableDiffusionPipeline",
+    "mlx_examples.stable_diffusion:StableDiffusionPipeline",
+    "mlx_examples.models.stable_diffusion.pipeline:StableDiffusionPipeline",
 ]
 
 
-def _import_mlx_stable_diffusion_pipeline_class() -> Any:
+def _import_mlx_stable_diffusion_pipeline_class(
+    override_path: Optional[str] = None,
+) -> Any:
     """Return the StableDiffusionPipeline class from the installed mlx-examples."""
 
     errors: List[str] = []
-    for module_name, attr_name in _MLX_SD_PIPELINE_CANDIDATES:
+    candidates: Iterable[str]
+    env_override = os.getenv("MLX_SD_PIPELINE")
+    if override_path:
+        candidates = (override_path,)
+    elif env_override:
+        candidates = (env_override, *(_MLX_SD_PIPELINE_CANDIDATES))
+    else:
+        candidates = _MLX_SD_PIPELINE_CANDIDATES
+
+    for candidate in candidates:
+        try:
+            module_name, attr_name = _parse_module_attr(candidate)
+        except ValueError as exc:
+            errors.append(f"{candidate}: {exc}")
+            continue
         try:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as exc:
@@ -172,14 +205,13 @@ def _import_mlx_stable_diffusion_pipeline_class() -> Any:
             return attr
         errors.append(f"{module_name}.{attr_name} 속성이 없습니다.")
 
-    tried = ", ".join(
-        f"{module}.{attr}" for module, attr in _MLX_SD_PIPELINE_CANDIDATES
-    )
+    tried = ", ".join(candidates)
     details = "; ".join(errors)
     raise ImportError(
         "StableDiffusionPipeline 클래스를 찾을 수 없습니다. "
         "mlx-examples 저장소가 최신인지와 'export PYTHONPATH=\"$(pwd):${PYTHONPATH}\"' 명령으로 "
-        "경로를 추가했는지 확인한 뒤 다시 시도하세요. "
+        "경로를 추가했는지 확인한 뒤 다시 시도하세요. 필요하다면 --sd-pipeline 옵션이나 "
+        "MLX_SD_PIPELINE 환경 변수를 사용해 파이프라인 경로를 직접 지정할 수 있습니다. "
         f"시도한 위치: {tried}. 상세: {details}"
     )
 
@@ -489,6 +521,7 @@ class MLXStableDiffusionSceneGenerator:
         self,
         model_path: str,
         *,
+        pipeline_path: Optional[str] = None,
         quantize: bool = True,
         steps: int = 30,
         guidance_scale: float = 7.5,
@@ -498,7 +531,9 @@ class MLXStableDiffusionSceneGenerator:
         height: int = 512,
     ) -> None:
         try:
-            StableDiffusionPipeline = _import_mlx_stable_diffusion_pipeline_class()
+            StableDiffusionPipeline = _import_mlx_stable_diffusion_pipeline_class(
+                pipeline_path
+            )
         except ImportError as exc:  # pragma: no cover - exercised only without mlx installed
             raise RuntimeError(
                 "Stable Diffusion 파이프라인 클래스를 찾을 수 없습니다. 먼저 'pip install mlx Pillow numpy'를 실행하고 "
@@ -650,6 +685,7 @@ def configure_lmstudio_model(
 def configure_mlx_stable_diffusion(
     model_path: str,
     *,
+    pipeline_path: Optional[str] = None,
     quantize: bool = True,
     steps: int = 30,
     guidance_scale: float = 7.5,
@@ -666,6 +702,7 @@ def configure_mlx_stable_diffusion(
         if "generator" not in cache:
             cache["generator"] = MLXStableDiffusionSceneGenerator(
                 model_path,
+                pipeline_path=pipeline_path,
                 quantize=quantize,
                 steps=steps,
                 guidance_scale=guidance_scale,
@@ -801,6 +838,10 @@ if __name__ == "__main__":
         help="LM Studio OpenAI 호환 서버에 전달할 API 키 (기본: 환경변수 또는 lm-studio)",
     )
     parser.add_argument("--sd-model", help="MLX Stable Diffusion 양자화 모델 경로")
+    parser.add_argument(
+        "--sd-pipeline",
+        help="Stable Diffusion 파이프라인 클래스 경로 (예: package.module:Class)",
+    )
     parser.add_argument("--sd-steps", type=int, default=30, help="Stable Diffusion 추론 스텝 수")
     parser.add_argument(
         "--sd-guidance",
@@ -846,8 +887,10 @@ if __name__ == "__main__":
 
     resolved_sd_model = _resolve_sd_model(args)
     if resolved_sd_model:
+        pipeline_path = args.sd_pipeline or None
         configure_mlx_stable_diffusion(
             resolved_sd_model,
+            pipeline_path=pipeline_path,
             quantize=not args.sd_no_quantize,
             steps=args.sd_steps,
             guidance_scale=args.sd_guidance,

@@ -416,6 +416,7 @@ def test_configure_mlx_stable_diffusion_registers_generator(monkeypatch) -> None
     assert isinstance(instance, _DummyGenerator)
     assert instance.args[0] == "quant-model"
     assert instance.kwargs == {
+        "pipeline_path": None,
         "quantize": True,
         "steps": 25,
         "guidance_scale": 8.5,
@@ -424,6 +425,28 @@ def test_configure_mlx_stable_diffusion_registers_generator(monkeypatch) -> None
         "width": 640,
         "height": 360,
     }
+
+
+def test_configure_mlx_stable_diffusion_forwards_pipeline_path(monkeypatch) -> None:
+    class _DummyGenerator:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        def generate(self, *, gm_text: str, player_input: str, facts: list[str]) -> str:
+            return PNG_DATA_URI
+
+    created: list[_DummyGenerator] = []
+
+    def _fake_use(generator: server.SceneGenerator) -> None:
+        created.append(generator)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(server, "MLXStableDiffusionSceneGenerator", _DummyGenerator)
+    monkeypatch.setattr(server, "configure_scene_generator", lambda factory: _fake_use(factory()))
+
+    server.configure_mlx_stable_diffusion("model", pipeline_path="pkg.module:Cls")
+
+    assert created
+    assert created[0].kwargs["pipeline_path"] == "pkg.module:Cls"
 
 
 def test_resolve_sd_model_respects_disable(monkeypatch) -> None:
@@ -455,6 +478,7 @@ def test_resolve_sd_model_defaults_when_model_configured(monkeypatch) -> None:
 
 
 def test_import_mlx_sd_pipeline_prefers_pipeline_module(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_PIPELINE", raising=False)
     root_package = types.ModuleType("mlx_examples")
     root_package.__path__ = []  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "mlx_examples", root_package)
@@ -474,6 +498,7 @@ def test_import_mlx_sd_pipeline_prefers_pipeline_module(monkeypatch) -> None:
 
 
 def test_import_mlx_sd_pipeline_falls_back_to_package(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_PIPELINE", raising=False)
     root_package = types.ModuleType("mlx_examples")
     root_package.__path__ = []  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "mlx_examples", root_package)
@@ -504,3 +529,41 @@ def test_import_mlx_sd_pipeline_falls_back_to_package(monkeypatch) -> None:
     )
 
     assert server._import_mlx_stable_diffusion_pipeline_class() is _DummyPipeline
+
+
+def test_import_mlx_sd_pipeline_supports_override(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_PIPELINE", raising=False)
+    module = types.ModuleType("custom.pipeline")
+
+    class _Pipeline:  # pragma: no cover - simple definition
+        pass
+
+    module.Custom = _Pipeline  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "custom.pipeline", module)
+
+    assert (
+        server._import_mlx_stable_diffusion_pipeline_class("custom.pipeline:Custom")
+        is _Pipeline
+    )
+
+
+def test_import_mlx_sd_pipeline_reads_environment(monkeypatch) -> None:
+    module = types.ModuleType("env.pipeline")
+
+    class _Pipeline:  # pragma: no cover - simple definition
+        pass
+
+    module.Stable = _Pipeline  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "env.pipeline", module)
+    monkeypatch.setenv("MLX_SD_PIPELINE", "env.pipeline:Stable")
+
+    assert server._import_mlx_stable_diffusion_pipeline_class() is _Pipeline
+
+
+def test_import_mlx_sd_pipeline_invalid_path(monkeypatch) -> None:
+    monkeypatch.delenv("MLX_SD_PIPELINE", raising=False)
+
+    with pytest.raises(ImportError) as excinfo:
+        server._import_mlx_stable_diffusion_pipeline_class("brokenpath")
+
+    assert "경로" in str(excinfo.value)

@@ -71,11 +71,12 @@ CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶�
    export PYTHONPATH="$(pwd):${PYTHONPATH}"
    ```
    루트 디렉터리에 `requirements.txt` 파일이 없으므로 Stable Diffusion 예제 폴더의 요구 사항 파일을 직접 설치해야 합니다. 위 명령은 예제 저장소 의존성을 설치하고 현재 셸 세션에서 `mlx_examples` 모듈을 찾을 수 있도록 경로를 노출합니다.
-   `StableDiffusionPipeline` 클래스를 찾을 수 있는지 아래와 같이 확인하면 경로가 올바르게 설정됐는지 빠르게 검증할 수 있습니다.
+   `StableDiffusionPipeline` 혹은 MLX 예제 버전에 맞는 파이프라인 클래스를 찾을 수 있는지 아래 스니펫으로 확인할 수 있습니다. 최신 저장소에서는 클래스 이름이 변경될 수 있으므로, 찾지 못했다면 `--sd-pipeline` 옵션으로 직접 경로를 지정하세요.
    ```bash
    python - <<'PY'
    from importlib import import_module
-   import_module("mlx_examples.stable_diffusion.pipeline").StableDiffusionPipeline
+   module = import_module("mlx_examples.stable_diffusion.pipeline")
+   print([name for name in dir(module) if "Pipeline" in name])
    PY
    ```
 3. MLX 예제 저장소의 안정화된 양자화 모델을 다운로드하거나 직접 변환합니다. 예를 들어 [`mlx-examples`](https://github.com/ml-explore/mlx-examples)의 `stable_diffusion` 스크립트로 `--quantize` 옵션을 사용해 모델을 준비할 수 있습니다.
@@ -94,6 +95,7 @@ CLI 대신 브라우저에서 간단한 인터페이스로 플레이하고 싶�
      --sd-height 512
    ```
    - `--sd-model`은 양자화된 Stable Diffusion 모델 폴더 혹은 체크포인트 경로입니다.
+   - `--sd-pipeline`으로 `패키지.모듈:클래스` 형식의 파이프라인 클래스를 직접 지정할 수 있습니다. 이 값을 생략하면 `MLX_SD_PIPELINE` 환경변수와 기본 후보 경로를 차례로 시도합니다.
    - `--sd-steps`, `--sd-guidance`, `--sd-negative`, `--sd-width`, `--sd-height`, `--sd-seed`로 세부 파라미터를 조정할 수 있습니다.
    - `--sd-no-quantize`를 지정하면 양자화 옵션을 비활성화할 수 있지만, 기본값은 양자화를 사용하도록 설정되어 있습니다.
    - Stable Diffusion을 사용하지 않으려면 `--sd-disable` 플래그를 추가해 SVG 키워드 생성기로 되돌릴 수 있습니다.
