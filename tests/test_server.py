@@ -6,6 +6,7 @@ from http.client import HTTPConnection
 
 import pytest
 
+from trpg import SceneSnapshot
 from server import GameMasterError, TRPGHTTPServer, create_app
 
 
@@ -17,10 +18,15 @@ class DummyGameMaster:
         self.messages.append(message)
         return f"응답: {message}"
 
-    def render_scene(self, *, width: int = 60) -> str:  # pylint: disable=unused-argument
+    def render_scene(self, *, width: int = 60) -> SceneSnapshot:  # pylint: disable=unused-argument
         if not self.messages:
-            return "(빈 장면)"
-        return "\n".join(self.messages)
+            return SceneSnapshot(
+                ascii_art="(빈 장면)",
+                prompt="아직 플레이어 행동이 없습니다.",
+                image=None,
+            )
+        ascii_art = "\n".join(self.messages)
+        return SceneSnapshot(ascii_art=ascii_art, prompt="최근 플레이어 행동을 묘사", image=None)
 
 
 def _factory() -> DummyGameMaster:
@@ -38,7 +44,8 @@ def test_app_create_session() -> None:
     payload = app.create_session()
 
     assert "session_id" in payload
-    assert payload["scene"] == "(빈 장면)"
+    assert payload["scene"]["ascii_art"] == "(빈 장면)"
+    assert payload["scene"]["prompt"]
 
 
 def test_app_send_message_updates_scene() -> None:
@@ -48,7 +55,7 @@ def test_app_send_message_updates_scene() -> None:
     payload = app.send_message(session["session_id"], "문을 연다")
 
     assert payload["response"] == "응답: 문을 연다"
-    assert payload["scene"] == "문을 연다"
+    assert payload["scene"]["ascii_art"] == "문을 연다"
 
 
 def test_app_unknown_session_raises() -> None:
@@ -99,7 +106,7 @@ def test_http_endpoints() -> None:
         message_body = json.loads(response.read().decode("utf-8"))
         assert response.status == 200
         assert message_body["response"] == "응답: 문을 닫는다"
-        assert "문을 닫는다" in message_body["scene"]
+        assert "문을 닫는다" in message_body["scene"]["ascii_art"]
     finally:
         conn.close()
         server.shutdown()

@@ -8,6 +8,8 @@ import re
 import textwrap
 from typing import Any, Iterable, List, Optional, Sequence
 
+from .scene_renderer import SceneRenderer, SceneSnapshot
+
 
 def _resolve_attr(name: str, modules: Sequence[str]) -> Any:
     """Return the requested attribute from the first importable module."""
@@ -94,11 +96,13 @@ class GameMaster:
         state: Optional[GameState] = None,
         initial_facts: Optional[Iterable[str]] = None,
         system_template: str,
+        scene_renderer: Optional[SceneRenderer] = None,
     ) -> None:
         self.llm = llm
         self.state = state or GameState()
         self._system_message = SystemMessage(content=system_template)
         self._chat_history: List[BaseMessage] = []
+        self._scene_renderer = scene_renderer or SceneRenderer()
         if initial_facts:
             for fact in initial_facts:
                 self.state.add_fact(fact)
@@ -159,10 +163,11 @@ class GameMaster:
         cleaned = pattern.sub("", text)
         return cleaned.strip()
 
-    def render_scene(self, *, width: int = 60) -> str:
-        """Expose the ASCII representation of the tracked facts."""
+    def render_scene(self, *, width: int = 60) -> SceneSnapshot:
+        """Render both an ASCII summary and an illustrative image."""
 
-        return self.state.render_scene(width=width)
+        ascii_art = self.state.render_scene(width=width)
+        return self._scene_renderer.render(ascii_art, self.state.facts)
 
 
 def create_default_game_master(llm) -> GameMaster:

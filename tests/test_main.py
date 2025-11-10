@@ -100,6 +100,7 @@ _install_langchain_stubs()
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import main  # noqa: E402  (import after path manipulation)
+from trpg.scene_renderer import SceneSnapshot
 
 
 class _DummyGameMaster:
@@ -108,17 +109,23 @@ class _DummyGameMaster:
     def __init__(self, responses: list[str]) -> None:
         self._responses = responses
         self.inputs: list[str] = []
-        self.scene = "(initial scene)"
+        self.scene = SceneSnapshot(
+            ascii_art="(initial scene)", prompt="초기 장면", image=None
+        )
 
     def respond(self, player_input: str) -> str:
         self.inputs.append(player_input)
         if not self._responses:
             raise AssertionError("No responses left in dummy game master")
         response = self._responses.pop(0)
-        self.scene = f"Scene: {player_input} -> {response}"
+        self.scene = SceneSnapshot(
+            ascii_art=f"Scene: {player_input} -> {response}",
+            prompt=f"Prompt for {player_input}",
+            image=None,
+        )
         return response
 
-    def render_scene(self, width: int = 60) -> str:
+    def render_scene(self, width: int = 60) -> SceneSnapshot:
         return self.scene
 
 
@@ -198,6 +205,8 @@ def test_prompt_loop_handles_quit(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "Intro" in captured.out
     assert "Response 1" in captured.out
+    assert "Scene: Hello -> Response 1" in captured.out
+    assert "[Scene prompt] Prompt for Hello" in captured.out
 
 
 def test_prepare_speech_segments_splits_sentences() -> None:

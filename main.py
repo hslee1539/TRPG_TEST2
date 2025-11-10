@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover - fallback for alternate package layouts
     except ImportError:  # pragma: no cover - fallback for legacy langchain
         from langchain.chat_models import ChatOpenAI  # type: ignore
 
-from trpg import GameMaster, create_default_game_master
+from trpg import GameMaster, SceneSnapshot, create_default_game_master
 
 try:  # pragma: no cover - optional dependency for voice input
     import speech_recognition as _speech_recognition
@@ -339,9 +339,25 @@ def prompt_loop(
 
         render_scene = getattr(gm, "render_scene", None)
         if callable(render_scene):
-            scene_image = render_scene()
-            if scene_image:
-                print(f"{scene_image}\n")
+            scene = render_scene()
+            ascii_art: Optional[str] = None
+            prompt_text: Optional[str] = None
+
+            if isinstance(scene, SceneSnapshot):
+                ascii_art = scene.ascii_art
+                prompt_text = scene.prompt
+            elif isinstance(scene, dict):
+                ascii_art = scene.get("ascii_art")
+                prompt_text = scene.get("prompt")
+            elif scene is not None:
+                ascii_art = str(scene)
+
+            if ascii_art:
+                print(ascii_art)
+            if prompt_text:
+                print(f"[Scene prompt] {prompt_text}")
+            if ascii_art or prompt_text:
+                print()
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
