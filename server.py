@@ -9,12 +9,12 @@ import threading
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import urlparse
 from uuid import uuid4
 
 from main import build_game_master
-from trpg import GameMaster
+from trpg import GameMaster, SceneSnapshot
 
 GameMasterFactory = Callable[[], GameMaster]
 
@@ -58,11 +58,14 @@ class WebApp:
     def __init__(self, store: SessionStore) -> None:
         self._store = store
 
-    def create_session(self) -> Dict[str, str]:
+    def create_session(self) -> Dict[str, Any]:
         session_id, game_master = self._store.create()
-        return {"session_id": session_id, "scene": game_master.render_scene()}
+        return {
+            "session_id": session_id,
+            "scene": _scene_payload(game_master.render_scene()),
+        }
 
-    def send_message(self, session_id: str, message: str) -> Dict[str, str]:
+    def send_message(self, session_id: str, message: str) -> Dict[str, Any]:
         message = (message or "").strip()
         if not message:
             raise ValueError("메시지는 비어 있을 수 없습니다.")
@@ -71,7 +74,10 @@ class WebApp:
             response = game_master.respond(message)
         except Exception as exc:
             raise GameMasterError("게임 마스터가 응답을 생성하지 못했습니다. 모델 구성을 확인하세요.") from exc
-        return {"response": response, "scene": game_master.render_scene()}
+        return {
+            "response": response,
+            "scene": _scene_payload(game_master.render_scene()),
+        }
 
     @staticmethod
     def index_html() -> str:
@@ -206,12 +212,54 @@ def build_index_html() -> str:
                     font-size: 2rem;
                     letter-spacing: -0.03em;
                 }
+                .scene {
+                    background: rgba(15, 23, 42, 0.6);
+                    border: 1px solid rgba(148, 163, 184, 0.2);
+                    border-radius: 12px;
+                    padding: 1rem;
+                    margin-bottom: 1.5rem;
+                    display: grid;
+                    gap: 1rem;
+                }
+                .scene-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: baseline;
+                    gap: 1rem;
+                }
+                .scene-header h2 {
+                    margin: 0;
+                    font-size: 1.3rem;
+                }
+                #scene-prompt {
+                    margin: 0;
+                    font-size: 0.85rem;
+                    color: rgba(226, 232, 240, 0.65);
+                    flex: 1;
+                    text-align: right;
+                }
+                #scene-image {
+                    width: 100%;
+                    border-radius: 12px;
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                    display: none;
+                }
+                #scene-ascii {
+                    background: rgba(15, 23, 42, 0.45);
+                    border: 1px dashed rgba(148, 163, 184, 0.3);
+                    border-radius: 8px;
+                    padding: 0.75rem;
+                    white-space: pre-wrap;
+                    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                    font-size: 0.9rem;
+                    margin: 0;
+                }
                 #log {
                     background: rgba(15, 23, 42, 0.6);
                     border: 1px solid rgba(148, 163, 184, 0.2);
                     border-radius: 12px;
                     padding: 1rem;
-                    height: 320px;
+                    height: 220px;
                     overflow-y: auto;
                     white-space: pre-wrap;
                     margin-bottom: 1rem;
@@ -256,7 +304,15 @@ def build_index_html() -> str:
         <body>
             <div class="card">
                 <h1>LangChain TRPG</h1>
-                <div id="log">새 세션을 준비하는 중...</div>
+                <div class="scene">
+                    <div class="scene-header">
+                        <h2>현재 장면</h2>
+                        <p id="scene-prompt"></p>
+                    </div>
+                    <img id="scene-image" alt="현재 장면" loading="lazy">
+                    <pre id="scene-ascii">새 세션을 준비하는 중...</pre>
+                </div>
+                <div id="log">세션을 초기화하는 중...</div>
                 <form id="input-form">
                     <input id="message" type="text" placeholder="행동을 입력하세요" autocomplete="off">
                     <button type="submit">보내기</button>
@@ -265,6 +321,9 @@ def build_index_html() -> str:
             </div>
             <script>
                 const log = document.getElementById('log');
+                const sceneAscii = document.getElementById('scene-ascii');
+                const sceneImage = document.getElementById('scene-image');
+                const scenePrompt = document.getElementById('scene-prompt');
                 const form = document.getElementById('input-form');
                 const input = document.getElementById('message');
                 let sessionId = null;
@@ -279,14 +338,35 @@ def build_index_html() -> str:
                     const data = await response.json();
                     sessionId = data.session_id;
                     renderScene(data.scene);
+                    log.textContent = '세션이 시작되었습니다. 행동을 입력해보세요!';
                 }
 
                 function renderScene(scene) {
-                    log.textContent = scene;
+                    if (!scene) {
+                        sceneAscii.textContent = '(장면 정보를 불러올 수 없습니다.)';
+                        sceneImage.style.display = 'none';
+                        sceneImage.removeAttribute('src');
+                        scenePrompt.textContent = '';
+                        return;
+                    }
+                    sceneAscii.textContent = scene.ascii_art || '(ASCII 장면 데이터가 없습니다.)';
+                    scenePrompt.textContent = scene.prompt || '';
+                    if (scene.image && scene.image.data) {
+                        sceneImage.src = `data:${scene.image.mime_type};base64,${scene.image.data}`;
+                        sceneImage.style.display = 'block';
+                    } else {
+                        sceneImage.style.display = 'none';
+                        sceneImage.removeAttribute('src');
+                    }
                 }
 
                 function appendResponse(message, response) {
-                    log.textContent += `\n\n플레이어: ${message}\nGM: ${response}`;
+                    const entry = `플레이어: ${message}\nGM: ${response}`;
+                    if (!log.textContent.trim()) {
+                        log.textContent = entry;
+                    } else {
+                        log.textContent += `\n\n${entry}`;
+                    }
                     log.scrollTop = log.scrollHeight;
                 }
 
@@ -325,7 +405,19 @@ def build_index_html() -> str:
     ).strip()
 
 
-def _json_response(payload: Dict[str, str]) -> WebResponse:
+def _scene_payload(scene: Any) -> Dict[str, Any]:
+    if isinstance(scene, SceneSnapshot):
+        return scene.to_payload()
+    if isinstance(scene, dict):  # pragma: no cover - defensive compatibility
+        return scene
+    ascii_art = "" if scene is None else str(scene)
+    return {
+        "ascii_art": ascii_art,
+        "prompt": "ASCII 요약만 사용 가능한 장면입니다.",
+    }
+
+
+def _json_response(payload: Dict[str, Any]) -> WebResponse:
     body = json.dumps(payload).encode("utf-8")
     return WebResponse(
         status=HTTPStatus.OK,

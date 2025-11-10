@@ -55,6 +55,7 @@ from trpg.game_master import (
     GameMaster,
     GameState,
     SystemMessage,
+    SceneSnapshot,
     create_default_game_master,
 )
 
@@ -165,3 +166,16 @@ def test_game_state_render_scene_formats_ascii_image() -> None:
     assert any("• Player: Hello" in line for line in lines)
     assert any("• GM: The sky is blue" in line for line in lines)
     assert any("and bright." in line for line in lines)
+
+
+def test_game_master_render_scene_returns_snapshot() -> None:
+    """``render_scene`` should yield a ``SceneSnapshot`` with ASCII content."""
+
+    llm = _DummyInvokeLLM("The GM speaks.")
+    gm = create_default_game_master(llm)
+
+    snapshot = gm.render_scene()
+
+    assert isinstance(snapshot, SceneSnapshot)
+    assert snapshot.ascii_art.startswith("+")
+    assert snapshot.prompt
