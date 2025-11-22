@@ -42,7 +42,10 @@ class FailingGameMaster(DummyGameMaster):
 class VisualGameMaster(DummyGameMaster):
     def render_scene_image(self):  # pragma: no cover - 단순 데이터 반환
         return SceneImageResult(
-            prompt="밤의 성", data_url="data:image/png;base64,abc123", error=None
+            prompt="밤의 성",
+            data_url="data:image/png;base64,abc123",
+            data_urls=["data:image/png;base64,abc123", "data:image/png;base64,def456"],
+            error=None,
         )
 
 
@@ -77,6 +80,8 @@ def test_app_includes_scene_image_when_available() -> None:
 
     assert payload["scene"].startswith("(빈 장면)")
     assert payload["scene_image"].startswith("data:image/png;base64,")
+    assert payload["scene_images"][0] == payload["scene_image"]
+    assert len(payload["scene_images"]) == 2
     assert payload["scene_prompt"] == "밤의 성"
 
 

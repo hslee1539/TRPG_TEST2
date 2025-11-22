@@ -31,6 +31,7 @@ class SceneImageResult:
     prompt: str
     data_url: Optional[str]
     error: Optional[str] = None
+    data_urls: Optional[list[str]] = None
 
 
 class MLXStableDiffusionSceneRenderer:
@@ -49,6 +50,7 @@ class MLXStableDiffusionSceneRenderer:
         negative_prompt: Optional[str] = None,
         steps: int = 28,
         guidance_scale: float = 7.5,
+        variations: int = 4,
         enabled: bool = True,
     ) -> None:
         self.command = command or os.getenv("TRPG_MLX_SD_COMMAND", DEFAULT_MLX_SD_COMMAND)
@@ -58,6 +60,7 @@ class MLXStableDiffusionSceneRenderer:
         self.guidance_scale = float(
             os.getenv("TRPG_MLX_SD_GUIDANCE", str(guidance_scale))
         )
+        self.variations = max(1, int(os.getenv("TRPG_MLX_SD_VARIATIONS", str(variations))))
         self.enabled = enabled
 
     def render(self, facts: Sequence[str]) -> Optional[SceneImageResult]:
@@ -68,12 +71,13 @@ class MLXStableDiffusionSceneRenderer:
 
         prompt = self._build_prompt(facts)
         try:
-            data_url = self._run_mlx(prompt)
+            data_urls = self._run_mlx(prompt)
         except Exception as exc:  # pragma: no cover - 방어적 코드 경로
             message = f"MLX Stable Diffusion 실행 오류: {exc}"
             return SceneImageResult(prompt=prompt, data_url=None, error=message)
 
-        return SceneImageResult(prompt=prompt, data_url=data_url)
+        primary = data_urls[0] if data_urls else None
+        return SceneImageResult(prompt=prompt, data_url=primary, data_urls=data_urls)
 
     def _build_prompt(self, facts: Sequence[str]) -> str:
         if not facts:
@@ -128,42 +132,60 @@ class MLXStableDiffusionSceneRenderer:
                 seen.add(key)
         return deduped
 
-    def _run_mlx(self, prompt: str) -> str:
-        """MLX Stable Diffusion CLI를 실행하고 data URL 형태로 반환합니다."""
+    def _run_mlx(self, prompt: str) -> list[str]:
+        """MLX Stable Diffusion CLI를 실행하고 data URL 목록을 반환합니다."""
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "scene.png"
-            command_variants = self._build_command_variants(output_path, prompt)
-
+            results: list[str] = []
             errors: list[str] = []
-            for command in command_variants:
+
+            for index in range(self.variations):
+                output_path = Path(tmpdir) / f"scene_{index}.png"
                 try:
-                    subprocess.run(
-                        command,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                except FileNotFoundError as exc:  # pragma: no cover - 실행기 미설치 시
-                    raise RuntimeError(
-                        "mlx Stable Diffusion 실행 파일을 찾을 수 없습니다. "
-                        "MLX 예제를 설치했는지 확인하거나 TRPG_MLX_SD_COMMAND를 "
-                        "사용해 실행 경로를 지정하세요."
-                    ) from exc
-                except subprocess.CalledProcessError as exc:  # pragma: no cover - 실행 실패 시
-                    stdout = exc.stdout or ""
-                    stderr = exc.stderr or ""
-                    errors.append(f"{stdout.strip()} {stderr.strip()}")
-                    continue
-                else:
-                    break
-            else:  # pragma: no cover - 모든 변형이 실패한 경우
-                combined = " | ".join(err.strip() for err in errors if err.strip())
-                raise RuntimeError(f"Stable Diffusion 실행에 실패했습니다: {combined}")
+                    results.append(self._run_single_mlx(output_path, prompt))
+                except RuntimeError as exc:  # pragma: no cover - 방어적 코드 경로
+                    errors.append(str(exc))
 
-            if not output_path.exists():  # pragma: no cover - 실행기 출력 누락 시
-                raise RuntimeError("Stable Diffusion이 이미지를 생성하지 못했습니다.")
+            if results:
+                return results
 
-            image_bytes = output_path.read_bytes()
-            encoded = base64.b64encode(image_bytes).decode("ascii")
-            return f"data:image/png;base64,{encoded}"
+            combined = " | ".join(err.strip() for err in errors if err.strip())
+            raise RuntimeError(f"Stable Diffusion 실행에 실패했습니다: {combined}")
+
+    def _run_single_mlx(self, output_path: Path, prompt: str) -> str:
+        """단일 이미지를 생성하고 data URL을 반환합니다."""
+
+        command_variants = self._build_command_variants(output_path, prompt)
+        errors: list[str] = []
+
+        for command in command_variants:
+            try:
+                subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:  # pragma: no cover - 실행기 미설치 시
+                raise RuntimeError(
+                    "mlx Stable Diffusion 실행 파일을 찾을 수 없습니다. "
+                    "MLX 예제를 설치했는지 확인하거나 TRPG_MLX_SD_COMMAND를 "
+                    "사용해 실행 경로를 지정하세요."
+                ) from exc
+            except subprocess.CalledProcessError as exc:  # pragma: no cover - 실행 실패 시
+                stdout = exc.stdout or ""
+                stderr = exc.stderr or ""
+                errors.append(f"{stdout.strip()} {stderr.strip()}")
+                continue
+            else:
+                break
+        else:  # pragma: no cover - 모든 변형이 실패한 경우
+            combined = " | ".join(err.strip() for err in errors if err.strip())
+            raise RuntimeError(f"Stable Diffusion 실행에 실패했습니다: {combined}")
+
+        if not output_path.exists():  # pragma: no cover - 실행기 출력 누락 시
+            raise RuntimeError("Stable Diffusion이 이미지를 생성하지 못했습니다.")
+
+        image_bytes = output_path.read_bytes()
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        return f"data:image/png;base64,{encoded}"

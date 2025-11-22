@@ -62,6 +62,8 @@ Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-e
    # (모델 선택이 가능한 버전이라면 'sd' 혹은 'sdxl' 모델 식별자만 지원합니다.)
    export TRPG_MLX_SD_MODEL="sdxl"
    export TRPG_MLX_SD_NEGATIVE_PROMPT="blurry, low quality"
+   # 한 번에 여러 변주(기본 4장)를 만들고 싶다면 값을 조정하세요.
+   export TRPG_MLX_SD_VARIATIONS=4
    ```
 3. 커맨드라인에서는 `--enable-mlx-sd` 옵션을 사용해도 동일하게 동작합니다.
 

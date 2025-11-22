@@ -88,6 +88,8 @@ class WebApp:
                 payload["scene_image_error"] = f"장면 이미지를 생성하지 못했습니다: {exc}"
             else:
                 if image_result:
+                    if image_result.data_urls:
+                        payload["scene_images"] = image_result.data_urls
                     if image_result.data_url:
                         payload["scene_image"] = image_result.data_url
                     if image_result.prompt:
@@ -280,11 +282,43 @@ def build_index_html() -> str:
                     padding: 0.75rem;
                     background: rgba(15, 23, 42, 0.5);
                 }
-                .scene-visual img {
+                .scene-gallery {
+                    display: grid;
+                    gap: 0.75rem;
+                }
+                .scene-frame img {
                     display: block;
                     width: 100%;
                     border-radius: 10px;
                     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+                }
+                .scene-variations {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                    gap: 0.5rem;
+                }
+                .scene-variations[data-empty="true"] {
+                    display: none;
+                }
+                .scene-variation {
+                    opacity: 0;
+                    transform: translateY(10px);
+                    transition: opacity 0.3s ease, transform 0.3s ease;
+                }
+                .scene-variation img {
+                    width: 100%;
+                    border-radius: 10px;
+                    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                }
+                .scene-variation.pop-in {
+                    opacity: 1;
+                    transform: translateY(0);
+                    animation: popIn 0.45s ease forwards;
+                }
+                @keyframes popIn {
+                    0% { opacity: 0; transform: translateY(12px) scale(0.98); }
+                    100% { opacity: 1; transform: translateY(0) scale(1); }
                 }
                 .eyebrow {
                     text-transform: uppercase;
@@ -315,7 +349,12 @@ def build_index_html() -> str:
                 <h1>LangChain TRPG</h1>
                 <div id="scene-visual" class="scene-visual" hidden>
                     <p class="eyebrow">Stable Diffusion (MLX)</p>
-                    <img id="scene-image" alt="Stable Diffusion으로 생성된 장면" loading="lazy">
+                    <div id="scene-gallery" class="scene-gallery" hidden>
+                        <div class="scene-frame primary-frame">
+                            <img id="scene-image" alt="Stable Diffusion으로 생성된 장면" loading="lazy">
+                        </div>
+                        <div id="scene-variations" class="scene-variations" data-empty="true"></div>
+                    </div>
                     <p id="scene-prompt" class="scene-prompt"></p>
                 </div>
                 <div id="scene-error" class="scene-error" hidden></div>
@@ -333,7 +372,9 @@ def build_index_html() -> str:
                 const input = document.getElementById('message');
                 const sceneText = document.getElementById('scene-text');
                 const sceneVisual = document.getElementById('scene-visual');
+                const sceneGallery = document.getElementById('scene-gallery');
                 const sceneImage = document.getElementById('scene-image');
+                const sceneVariations = document.getElementById('scene-variations');
                 const scenePrompt = document.getElementById('scene-prompt');
                 const sceneError = document.getElementById('scene-error');
                 let sessionId = null;
@@ -351,14 +392,45 @@ def build_index_html() -> str:
                     renderScene(data);
                 }
 
+                function renderVariations(sources) {
+                    sceneVariations.innerHTML = '';
+                    if (!sources.length) {
+                        sceneVariations.dataset.empty = 'true';
+                        return;
+                    }
+                    sceneVariations.dataset.empty = 'false';
+                    sources.forEach((src, index) => {
+                        const frame = document.createElement('div');
+                        frame.className = 'scene-variation';
+                        const img = document.createElement('img');
+                        img.loading = 'lazy';
+                        img.src = src;
+                        img.alt = `Stable Diffusion 변주 ${index + 2}`;
+                        img.addEventListener('load', () => {
+                            requestAnimationFrame(() => {
+                                frame.style.animationDelay = `${index * 0.08}s`;
+                                frame.classList.add('pop-in');
+                            });
+                        });
+                        frame.appendChild(img);
+                        sceneVariations.appendChild(frame);
+                    });
+                }
+
                 function renderScene(payload) {
                     if (payload.scene) {
                         sceneText.textContent = payload.scene;
                     }
 
-                    if (payload.scene_image) {
-                        sceneImage.src = payload.scene_image;
+                    const images = Array.isArray(payload.scene_images)
+                        ? payload.scene_images
+                        : (payload.scene_image ? [payload.scene_image] : []);
+
+                    if (images.length) {
+                        sceneImage.src = images[0];
                         sceneVisual.hidden = false;
+                        sceneGallery.hidden = false;
+                        renderVariations(images.slice(1));
                         if (payload.scene_prompt) {
                             scenePrompt.textContent = `프롬프트: ${payload.scene_prompt}`;
                             scenePrompt.style.display = 'block';
@@ -368,6 +440,9 @@ def build_index_html() -> str:
                         }
                     } else {
                         sceneVisual.hidden = true;
+                        sceneGallery.hidden = true;
+                        sceneVariations.innerHTML = '';
+                        sceneVariations.dataset.empty = 'true';
                         sceneImage.removeAttribute('src');
                         scenePrompt.textContent = '';
                         scenePrompt.style.display = 'none';
