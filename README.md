@@ -43,9 +43,13 @@ python -m server
 ## MLX Stable Diffusion으로 장면 시각화
 Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-examples) 를 설치해 두었다면, 세션마다 현재 장면을 이미지로 렌더링해 웹 UI에서 확인할 수 있습니다.
 
-1. MLX 예제 실행기를 설치합니다.
+1. MLX 예제 실행기를 설치합니다. `mlx-examples`는 PyPI에 배포되지 않으므로 저장소를 직접 클론해야 합니다.
    ```bash
-   pip install mlx mlx-examples  # 또는 MLX Stable Diffusion 실행기를 제공하는 배포판
+   pip install mlx
+   git clone https://github.com/ml-examples/mlx-examples.git
+   # 실행 스크립트의 경로를 환경변수에 설정합니다.
+   export TRPG_MLX_SD_COMMAND="python /path/to/mlx-examples/stable_diffusion/generate.py"
+   # (mlx-examples를 editable 모드로 설치했다면 기본값 `python -m mlx_examples.stable_diffusion.generate`도 사용할 수 있습니다.)
    ```
 2. 환경변수로 기능을 켭니다.
    ```bash
