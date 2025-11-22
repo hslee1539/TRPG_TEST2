@@ -90,39 +90,76 @@ class MLXStableDiffusionSceneRenderer:
             f"{summary}"
         )
 
+    def _build_command_variants(self, output_path: Path, prompt: str) -> list[list[str]]:
+        """txt2image 스크립트의 플래그 차이를 흡수하기 위한 커맨드 후보를 만듭니다."""
+
+        base_command = list(shlex.split(self.command))
+
+        def _append_common_args(include_model: bool, use_cfg: bool, use_prompt_flag: bool) -> list[str]:
+            command = base_command.copy()
+            if include_model and self.model:
+                command.extend(["--model", self.model])
+            if self.negative_prompt:
+                command.extend(["--negative_prompt", self.negative_prompt])
+            command.extend(["--steps", str(self.steps)])
+            if use_cfg:
+                command.extend(["--cfg", str(self.guidance_scale)])
+            else:
+                command.extend(["--guidance-scale", str(self.guidance_scale)])
+            command.extend(["--output", str(output_path)])
+            if use_prompt_flag:
+                command.extend(["--prompt", prompt])
+            else:
+                command.append(prompt)
+            return command
+
+        variants = [
+            _append_common_args(include_model=True, use_cfg=True, use_prompt_flag=False),
+            _append_common_args(include_model=True, use_cfg=False, use_prompt_flag=True),
+            _append_common_args(include_model=False, use_cfg=True, use_prompt_flag=False),
+        ]
+
+        deduped: list[list[str]] = []
+        seen: set[tuple[str, ...]] = set()
+        for variant in variants:
+            key = tuple(variant)
+            if key not in seen:
+                deduped.append(variant)
+                seen.add(key)
+        return deduped
+
     def _run_mlx(self, prompt: str) -> str:
         """MLX Stable Diffusion CLI를 실행하고 data URL 형태로 반환합니다."""
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "scene.png"
-            command = list(shlex.split(self.command))
-            command.extend(["--prompt", prompt, "--output", str(output_path)])
-            if self.model:
-                command.extend(["--model", self.model])
-            if self.negative_prompt:
-                command.extend(["--negative-prompt", self.negative_prompt])
-            command.extend(["--steps", str(self.steps), "--guidance-scale", str(self.guidance_scale)])
+            command_variants = self._build_command_variants(output_path, prompt)
 
-            try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except FileNotFoundError as exc:  # pragma: no cover - 실행기 미설치 시
-                raise RuntimeError(
-                    "mlx Stable Diffusion 실행 파일을 찾을 수 없습니다. "
-                    "MLX 예제를 설치했는지 확인하거나 TRPG_MLX_SD_COMMAND를 "
-                    "사용해 실행 경로를 지정하세요."
-                ) from exc
-            except subprocess.CalledProcessError as exc:  # pragma: no cover - 실행 실패 시
-                stdout = exc.stdout or ""
-                stderr = exc.stderr or ""
-                raise RuntimeError(
-                    "Stable Diffusion 실행에 실패했습니다: "
-                    f"{stdout.strip()} {stderr.strip()}"
-                ) from exc
+            errors: list[str] = []
+            for command in command_variants:
+                try:
+                    subprocess.run(
+                        command,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                except FileNotFoundError as exc:  # pragma: no cover - 실행기 미설치 시
+                    raise RuntimeError(
+                        "mlx Stable Diffusion 실행 파일을 찾을 수 없습니다. "
+                        "MLX 예제를 설치했는지 확인하거나 TRPG_MLX_SD_COMMAND를 "
+                        "사용해 실행 경로를 지정하세요."
+                    ) from exc
+                except subprocess.CalledProcessError as exc:  # pragma: no cover - 실행 실패 시
+                    stdout = exc.stdout or ""
+                    stderr = exc.stderr or ""
+                    errors.append(f"{stdout.strip()} {stderr.strip()}")
+                    continue
+                else:
+                    break
+            else:  # pragma: no cover - 모든 변형이 실패한 경우
+                combined = " | ".join(err.strip() for err in errors if err.strip())
+                raise RuntimeError(f"Stable Diffusion 실행에 실패했습니다: {combined}")
 
             if not output_path.exists():  # pragma: no cover - 실행기 출력 누락 시
                 raise RuntimeError("Stable Diffusion이 이미지를 생성하지 못했습니다.")

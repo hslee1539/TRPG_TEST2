@@ -58,7 +58,8 @@ Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-e
    필요하다면 실행 커맨드나 모델을 조정할 수 있습니다.
    ```bash
    export TRPG_MLX_SD_COMMAND="python -m mlx_examples.stable_diffusion.txt2image"
-   # txt2image는 'sd' 혹은 'sdxl' 모델 식별자만 지원합니다.
+   # txt2image는 프롬프트를 위치 인자로 받으며 guidance 파라미터는 --cfg 옵션으로 전달됩니다.
+   # (모델 선택이 가능한 버전이라면 'sd' 혹은 'sdxl' 모델 식별자만 지원합니다.)
    export TRPG_MLX_SD_MODEL="sdxl"
    export TRPG_MLX_SD_NEGATIVE_PROMPT="blurry, low quality"
    ```
