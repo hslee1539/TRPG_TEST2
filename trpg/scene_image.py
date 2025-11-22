@@ -20,7 +20,8 @@ from typing import Optional, Sequence
 
 
 DEFAULT_MLX_SD_COMMAND = f"{sys.executable} -m mlx_examples.stable_diffusion.txt2image"
-DEFAULT_MLX_SD_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+# mlx_examples의 txt2image는 'sd' 혹은 'sdxl' 두 모델 식별자를 지원합니다.
+DEFAULT_MLX_SD_MODEL = "sdxl"
 
 
 @dataclass
