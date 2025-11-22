@@ -8,6 +8,8 @@ import re
 import textwrap
 from typing import Any, Iterable, List, Optional, Sequence
 
+from .scene_image import MLXStableDiffusionSceneRenderer, SceneImageResult
+
 
 def _resolve_attr(name: str, modules: Sequence[str]) -> Any:
     """Return the requested attribute from the first importable module."""
@@ -94,11 +96,13 @@ class GameMaster:
         state: Optional[GameState] = None,
         initial_facts: Optional[Iterable[str]] = None,
         system_template: str,
+        scene_renderer: Optional[MLXStableDiffusionSceneRenderer] = None,
     ) -> None:
         self.llm = llm
         self.state = state or GameState()
         self._system_message = SystemMessage(content=system_template)
         self._chat_history: List[BaseMessage] = []
+        self.scene_renderer = scene_renderer
         if initial_facts:
             for fact in initial_facts:
                 self.state.add_fact(fact)
@@ -164,8 +168,17 @@ class GameMaster:
 
         return self.state.render_scene(width=width)
 
+    def render_scene_image(self) -> Optional[SceneImageResult]:
+        """옵션으로 MLX Stable Diffusion 이미지를 생성한다."""
 
-def create_default_game_master(llm) -> GameMaster:
+        if self.scene_renderer is None:
+            return None
+        return self.scene_renderer.render(self.state.facts)
+
+
+def create_default_game_master(
+    llm: Any, *, scene_renderer: Optional[MLXStableDiffusionSceneRenderer] = None
+) -> GameMaster:
     """Create a GameMaster with a story focused system prompt."""
 
     system_template = (
@@ -175,4 +188,6 @@ def create_default_game_master(llm) -> GameMaster:
         "to keep the story moving. Keep responses under 200 words and "
         "answer in Korean."
     )
-    return GameMaster(llm, system_template=system_template)
+    return GameMaster(
+        llm, system_template=system_template, scene_renderer=scene_renderer
+    )

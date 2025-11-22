@@ -173,12 +173,22 @@ def test_build_game_master_uses_helper() -> None:
         with mock.patch.object(
             main, "create_default_game_master", return_value=fake_game_master
         ) as factory:
-            result = main.build_game_master("model", 0.5, api_base="base", api_key="key")
+            with mock.patch.object(
+                main, "build_scene_renderer", return_value="renderer"
+            ) as build_renderer:
+                result = main.build_game_master(
+                    "model",
+                    0.5,
+                    api_base="base",
+                    api_key="key",
+                    enable_scene_images=True,
+                )
 
     build_llm.assert_called_once_with(
         model="model", temperature=0.5, api_base="base", api_key="key"
     )
-    factory.assert_called_once_with("llm")
+    build_renderer.assert_called_once_with(enable_scene_images=True)
+    factory.assert_called_once_with("llm", scene_renderer="renderer")
     assert result is fake_game_master
 
 
@@ -245,7 +255,13 @@ def test_main_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert exit_code == 0
     parse_args.assert_called_once_with(["--anything"])
-    build.assert_called_once_with(model="model", temperature=0.9, api_base=None, api_key=None)
+    build.assert_called_once_with(
+        model="model",
+        temperature=0.9,
+        api_base=None,
+        api_key=None,
+        enable_scene_images=None,
+    )
     loop.assert_called_once()
     assert loop.call_args.kwargs["input_mode"] == "text"
     assert loop.call_args.kwargs["speak_gm"] is False

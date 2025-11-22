@@ -6,7 +6,14 @@ from http.client import HTTPConnection
 
 import pytest
 
+import json
+import threading
+from http.client import HTTPConnection
+
+import pytest
+
 from server import GameMasterError, TRPGHTTPServer, create_app
+from trpg import SceneImageResult
 
 
 class DummyGameMaster:
@@ -32,6 +39,18 @@ class FailingGameMaster(DummyGameMaster):
         raise RuntimeError("No models loaded")
 
 
+class VisualGameMaster(DummyGameMaster):
+    def render_scene_image(self):  # pragma: no cover - 단순 데이터 반환
+        return SceneImageResult(
+            prompt="밤의 성", data_url="data:image/png;base64,abc123", error=None
+        )
+
+
+class BrokenVisualGameMaster(DummyGameMaster):
+    def render_scene_image(self):  # pragma: no cover - 예외 경로 확인
+        raise RuntimeError("렌더링 실패")
+
+
 def test_app_create_session() -> None:
     app = create_app(factory=_factory)
 
@@ -49,6 +68,25 @@ def test_app_send_message_updates_scene() -> None:
 
     assert payload["response"] == "응답: 문을 연다"
     assert payload["scene"] == "문을 연다"
+
+
+def test_app_includes_scene_image_when_available() -> None:
+    app = create_app(factory=VisualGameMaster)
+
+    payload = app.create_session()
+
+    assert payload["scene"].startswith("(빈 장면)")
+    assert payload["scene_image"].startswith("data:image/png;base64,")
+    assert payload["scene_prompt"] == "밤의 성"
+
+
+def test_app_handles_scene_image_errors() -> None:
+    app = create_app(factory=BrokenVisualGameMaster)
+
+    payload = app.create_session()
+
+    assert "scene_image_error" in payload
+    assert "렌더링 실패" in payload["scene_image_error"]
 
 
 def test_app_unknown_session_raises() -> None:

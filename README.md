@@ -39,3 +39,24 @@ python -m server
 ```
 
 브라우저에서 `http://127.0.0.1:8000`을 열면 대화형 UI가 나타납니다. 서버는 내부적으로 `main.build_game_master`를 사용하므로 커맨드라인과 동일한 환경변수(`TRPG_MODEL`, `TRPG_TEMPERATURE`, `TRPG_API_BASE`, `TRPG_API_KEY`) 설정을 그대로 활용할 수 있습니다.
+
+## MLX Stable Diffusion으로 장면 시각화
+Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-examples) 를 설치해 두었다면, 세션마다 현재 장면을 이미지로 렌더링해 웹 UI에서 확인할 수 있습니다.
+
+1. MLX 예제 실행기를 설치합니다.
+   ```bash
+   pip install mlx mlx-examples  # 또는 MLX Stable Diffusion 실행기를 제공하는 배포판
+   ```
+2. 환경변수로 기능을 켭니다.
+   ```bash
+   export TRPG_ENABLE_MLX_SD=1
+   ```
+   필요하다면 실행 커맨드나 모델을 조정할 수 있습니다.
+   ```bash
+   export TRPG_MLX_SD_COMMAND="python -m mlx_examples.stable_diffusion.generate"
+   export TRPG_MLX_SD_MODEL="stabilityai/stable-diffusion-xl-base-1.0"
+   export TRPG_MLX_SD_NEGATIVE_PROMPT="blurry, low quality"
+   ```
+3. 커맨드라인에서는 `--enable-mlx-sd` 옵션을 사용해도 동일하게 동작합니다.
+
+렌더링에 실패하면 텍스트 로그를 그대로 유지하며, 웹 UI에 오류 메시지가 표시됩니다. 기본 ASCII 요약은 계속 제공됩니다.

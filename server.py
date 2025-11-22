@@ -60,7 +60,9 @@ class WebApp:
 
     def create_session(self) -> Dict[str, str]:
         session_id, game_master = self._store.create()
-        return {"session_id": session_id, "scene": game_master.render_scene()}
+        payload = {"session_id": session_id}
+        payload.update(self._scene_payload(game_master))
+        return payload
 
     def send_message(self, session_id: str, message: str) -> Dict[str, str]:
         message = (message or "").strip()
@@ -71,7 +73,28 @@ class WebApp:
             response = game_master.respond(message)
         except Exception as exc:
             raise GameMasterError("게임 마스터가 응답을 생성하지 못했습니다. 모델 구성을 확인하세요.") from exc
-        return {"response": response, "scene": game_master.render_scene()}
+        payload = {"response": response}
+        payload.update(self._scene_payload(game_master))
+        return payload
+
+    @staticmethod
+    def _scene_payload(game_master: GameMaster) -> Dict[str, str]:
+        payload: Dict[str, str] = {"scene": game_master.render_scene()}
+        render_scene_image = getattr(game_master, "render_scene_image", None)
+        if callable(render_scene_image):
+            try:
+                image_result = render_scene_image()
+            except Exception as exc:  # pragma: no cover - 런타임 방어
+                payload["scene_image_error"] = f"장면 이미지를 생성하지 못했습니다: {exc}"
+            else:
+                if image_result:
+                    if image_result.data_url:
+                        payload["scene_image"] = image_result.data_url
+                    if image_result.prompt:
+                        payload["scene_prompt"] = image_result.prompt
+                    if image_result.error:
+                        payload["scene_image_error"] = image_result.error
+        return payload
 
     @staticmethod
     def index_html() -> str:
@@ -206,15 +229,20 @@ def build_index_html() -> str:
                     font-size: 2rem;
                     letter-spacing: -0.03em;
                 }
-                #log {
+                .panel {
                     background: rgba(15, 23, 42, 0.6);
                     border: 1px solid rgba(148, 163, 184, 0.2);
                     border-radius: 12px;
                     padding: 1rem;
+                    margin-bottom: 1rem;
+                }
+                #scene-text {
+                    white-space: pre-wrap;
+                }
+                #log {
                     height: 320px;
                     overflow-y: auto;
                     white-space: pre-wrap;
-                    margin-bottom: 1rem;
                 }
                 form {
                     display: flex;
@@ -246,6 +274,35 @@ def build_index_html() -> str:
                 button:not(:disabled):hover {
                     transform: translateY(-1px);
                 }
+                .scene-visual {
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                    border-radius: 12px;
+                    padding: 0.75rem;
+                    background: rgba(15, 23, 42, 0.5);
+                }
+                .scene-visual img {
+                    display: block;
+                    width: 100%;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+                }
+                .eyebrow {
+                    text-transform: uppercase;
+                    letter-spacing: 0.12em;
+                    font-size: 0.75rem;
+                    color: rgba(148, 163, 184, 0.85);
+                    margin: 0 0 0.35rem;
+                }
+                .scene-prompt {
+                    font-size: 0.9rem;
+                    color: rgba(226, 232, 240, 0.85);
+                    margin: 0.5rem 0 0;
+                    white-space: pre-wrap;
+                }
+                .scene-error {
+                    color: #fca5a5;
+                    margin: 0.25rem 0 0.75rem;
+                }
                 footer {
                     margin-top: 1.5rem;
                     font-size: 0.85rem;
@@ -256,7 +313,14 @@ def build_index_html() -> str:
         <body>
             <div class="card">
                 <h1>LangChain TRPG</h1>
-                <div id="log">새 세션을 준비하는 중...</div>
+                <div id="scene-visual" class="scene-visual" hidden>
+                    <p class="eyebrow">Stable Diffusion (MLX)</p>
+                    <img id="scene-image" alt="Stable Diffusion으로 생성된 장면" loading="lazy">
+                    <p id="scene-prompt" class="scene-prompt"></p>
+                </div>
+                <div id="scene-error" class="scene-error" hidden></div>
+                <div id="scene-text" class="panel">(장면을 준비하는 중...)</div>
+                <div id="log" class="panel">새 세션을 준비하는 중...</div>
                 <form id="input-form">
                     <input id="message" type="text" placeholder="행동을 입력하세요" autocomplete="off">
                     <button type="submit">보내기</button>
@@ -267,6 +331,11 @@ def build_index_html() -> str:
                 const log = document.getElementById('log');
                 const form = document.getElementById('input-form');
                 const input = document.getElementById('message');
+                const sceneText = document.getElementById('scene-text');
+                const sceneVisual = document.getElementById('scene-visual');
+                const sceneImage = document.getElementById('scene-image');
+                const scenePrompt = document.getElementById('scene-prompt');
+                const sceneError = document.getElementById('scene-error');
                 let sessionId = null;
 
                 async function createSession() {
@@ -278,11 +347,39 @@ def build_index_html() -> str:
                     }
                     const data = await response.json();
                     sessionId = data.session_id;
-                    renderScene(data.scene);
+                    log.textContent = '새 세션이 시작되었습니다.';
+                    renderScene(data);
                 }
 
-                function renderScene(scene) {
-                    log.textContent = scene;
+                function renderScene(payload) {
+                    if (payload.scene) {
+                        sceneText.textContent = payload.scene;
+                    }
+
+                    if (payload.scene_image) {
+                        sceneImage.src = payload.scene_image;
+                        sceneVisual.hidden = false;
+                        if (payload.scene_prompt) {
+                            scenePrompt.textContent = `프롬프트: ${payload.scene_prompt}`;
+                            scenePrompt.style.display = 'block';
+                        } else {
+                            scenePrompt.textContent = '';
+                            scenePrompt.style.display = 'none';
+                        }
+                    } else {
+                        sceneVisual.hidden = true;
+                        sceneImage.removeAttribute('src');
+                        scenePrompt.textContent = '';
+                        scenePrompt.style.display = 'none';
+                    }
+
+                    if (payload.scene_image_error) {
+                        sceneError.textContent = payload.scene_image_error;
+                        sceneError.hidden = false;
+                    } else {
+                        sceneError.textContent = '';
+                        sceneError.hidden = true;
+                    }
                 }
 
                 function appendResponse(message, response) {
@@ -309,7 +406,7 @@ def build_index_html() -> str:
                         }
                         const data = await response.json();
                         appendResponse(message, data.response);
-                        renderScene(data.scene);
+                        renderScene(data);
                         input.value = '';
                         input.focus();
                     } finally {
