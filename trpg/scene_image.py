@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 
-DEFAULT_MLX_SD_COMMAND = f"{sys.executable} -m mlx_examples.stable_diffusion.generate"
+DEFAULT_MLX_SD_COMMAND = f"{sys.executable} -m mlx_examples.stable_diffusion.txt2image"
 DEFAULT_MLX_SD_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 
 
@@ -35,7 +35,7 @@ class SceneImageResult:
 class MLXStableDiffusionSceneRenderer:
     """MLX Stable Diffusion을 호출해 장면 이미지를 생성합니다.
 
-    실제 MLX 실행 파일(예: ``python -m mlx_examples.stable_diffusion.generate``)
+    실제 MLX 실행 파일(예: ``python -m mlx_examples.stable_diffusion.txt2image``)
     을 서브프로세스로 실행하는 구조이므로, MLX 패키지가 설치되어 있지
     않으면 자동으로 우회하거나 오류 메시지를 반환합니다.
     """

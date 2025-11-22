@@ -48,8 +48,8 @@ Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-e
    pip install mlx
    git clone https://github.com/ml-explore/mlx-examples.git
    # 실행 스크립트의 경로를 환경변수에 설정합니다.
-   export TRPG_MLX_SD_COMMAND="python /path/to/mlx-examples/stable_diffusion/generate.py"
-   # (mlx-examples를 editable 모드로 설치했다면 기본값 `python -m mlx_examples.stable_diffusion.generate`도 사용할 수 있습니다.)
+   export TRPG_MLX_SD_COMMAND="python /path/to/mlx-examples/stable_diffusion/txt2image.py"
+   # (mlx-examples를 editable 모드로 설치했다면 기본값 `python -m mlx_examples.stable_diffusion.txt2image`도 사용할 수 있습니다.)
    ```
 2. 환경변수로 기능을 켭니다.
    ```bash
@@ -57,7 +57,7 @@ Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-e
    ```
    필요하다면 실행 커맨드나 모델을 조정할 수 있습니다.
    ```bash
-   export TRPG_MLX_SD_COMMAND="python -m mlx_examples.stable_diffusion.generate"
+   export TRPG_MLX_SD_COMMAND="python -m mlx_examples.stable_diffusion.txt2image"
    export TRPG_MLX_SD_MODEL="stabilityai/stable-diffusion-xl-base-1.0"
    export TRPG_MLX_SD_NEGATIVE_PROMPT="blurry, low quality"
    ```
