@@ -409,23 +409,42 @@ def build_index_html() -> str:
                     renderScene(data);
                 }
 
-                function renderVariations(sources) {
+                function clearVariationTimers() {
                     variationTimers.forEach(clearTimeout);
                     variationTimers = [];
+                }
+
+                function resetVariations() {
+                    clearVariationTimers();
                     sceneVariations.innerHTML = '';
+                    sceneVariations.dataset.empty = 'true';
+                }
+
+                function renderVariations(sources) {
                     if (!sources.length) {
-                        sceneVariations.dataset.empty = 'true';
+                        resetVariations();
                         return;
                     }
+
                     sceneVariations.dataset.empty = 'false';
-                    sources.forEach((src, index) => {
+
+                    const renderedCount = sceneVariations.childElementCount;
+                    const scheduledCount = variationTimers.length;
+                    const knownCount = renderedCount + scheduledCount;
+                    const newSources = sources.slice(knownCount);
+
+                    if (!newSources.length) {
+                        return;
+                    }
+
+                    newSources.forEach((src, index) => {
                         const timer = setTimeout(() => {
                             const frame = document.createElement('div');
                             frame.className = 'scene-variation';
                             const img = document.createElement('img');
                             img.loading = 'lazy';
                             img.src = src;
-                            img.alt = `Stable Diffusion 변주 ${index + 2}`;
+                            img.alt = `Stable Diffusion 변주 ${knownCount + index + 2}`;
                             img.addEventListener('load', () => {
                                 requestAnimationFrame(() => {
                                     frame.classList.add('fade-in');
@@ -433,7 +452,8 @@ def build_index_html() -> str:
                             });
                             frame.appendChild(img);
                             sceneVariations.appendChild(frame);
-                        }, index * 320);
+                            variationTimers = variationTimers.filter((item) => item !== timer);
+                        }, (knownCount + index) * 320);
                         variationTimers.push(timer);
                     });
                 }
@@ -496,8 +516,7 @@ def build_index_html() -> str:
                     } else {
                         sceneVisual.hidden = true;
                         sceneGallery.hidden = true;
-                        sceneVariations.innerHTML = '';
-                        sceneVariations.dataset.empty = 'true';
+                        resetVariations();
                         sceneImage.removeAttribute('src');
                         scenePrompt.textContent = '';
                         scenePrompt.style.display = 'none';
