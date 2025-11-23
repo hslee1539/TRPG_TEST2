@@ -16,7 +16,11 @@ except ImportError:  # pragma: no cover - fallback for alternate package layouts
     except ImportError:  # pragma: no cover - fallback for legacy langchain
         from langchain.chat_models import ChatOpenAI  # type: ignore
 
-from trpg import GameMaster, create_default_game_master
+from trpg import (
+    GameMaster,
+    MLXStableDiffusionSceneRenderer,
+    create_default_game_master,
+)
 
 try:  # pragma: no cover - optional dependency for voice input
     import speech_recognition as _speech_recognition
@@ -42,6 +46,21 @@ _PREFERRED_KOREAN_VOICE_KEYWORDS = (
 DEFAULT_LM_STUDIO_API_BASE = "http://localhost:1234/v1"
 DEFAULT_LM_STUDIO_API_KEY = "lm-studio"
 DEFAULT_SPEECH_LANGUAGE = "ko-KR"
+
+
+def _should_enable_scene_images(enable_scene_images: Optional[bool]) -> bool:
+    if enable_scene_images is not None:
+        return enable_scene_images
+    raw_flag = os.getenv("TRPG_ENABLE_MLX_SD", "0").strip().lower()
+    return raw_flag not in {"", "0", "false", "no", "off"}
+
+
+def build_scene_renderer(
+    *, enable_scene_images: Optional[bool] = None
+) -> Optional[MLXStableDiffusionSceneRenderer]:
+    if not _should_enable_scene_images(enable_scene_images):
+        return None
+    return MLXStableDiffusionSceneRenderer()
 
 
 def build_llm(
@@ -70,6 +89,8 @@ def build_game_master(
     temperature: float,
     api_base: Optional[str] = None,
     api_key: Optional[str] = None,
+    *,
+    enable_scene_images: Optional[bool] = None,
 ) -> GameMaster:
     llm = build_llm(
         model=model,
@@ -77,7 +98,8 @@ def build_game_master(
         api_base=api_base,
         api_key=api_key,
     )
-    return create_default_game_master(llm)
+    scene_renderer = build_scene_renderer(enable_scene_images=enable_scene_images)
+    return create_default_game_master(llm, scene_renderer=scene_renderer)
 
 
 def _initialize_voice_capture() -> Tuple[Any, Any]:
@@ -386,17 +408,36 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Read the GM's responses aloud using text-to-speech.",
     )
+    sd_group = parser.add_mutually_exclusive_group()
+    sd_group.add_argument(
+        "--enable-mlx-sd",
+        action="store_true",
+        help="Stable Diffusion(MLX)를 사용해 장면 이미지를 생성합니다.",
+    )
+    sd_group.add_argument(
+        "--disable-mlx-sd",
+        action="store_true",
+        help="환경변수 설정과 무관하게 장면 이미지 생성을 끕니다.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
+    enable_scene_images: Optional[bool]
+    if getattr(args, "enable_mlx_sd", False):
+        enable_scene_images = True
+    elif getattr(args, "disable_mlx_sd", False):
+        enable_scene_images = False
+    else:
+        enable_scene_images = None
     try:
         gm = build_game_master(
             model=args.model,
             temperature=args.temperature,
             api_base=args.api_base,
             api_key=args.api_key,
+            enable_scene_images=enable_scene_images,
         )
     except Exception as exc:
         print(exc, file=sys.stderr)

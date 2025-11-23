@@ -60,7 +60,9 @@ class WebApp:
 
     def create_session(self) -> Dict[str, str]:
         session_id, game_master = self._store.create()
-        return {"session_id": session_id, "scene": game_master.render_scene()}
+        payload = {"session_id": session_id}
+        payload.update(self._scene_payload(game_master))
+        return payload
 
     def send_message(self, session_id: str, message: str) -> Dict[str, str]:
         message = (message or "").strip()
@@ -71,7 +73,41 @@ class WebApp:
             response = game_master.respond(message)
         except Exception as exc:
             raise GameMasterError("게임 마스터가 응답을 생성하지 못했습니다. 모델 구성을 확인하세요.") from exc
-        return {"response": response, "scene": game_master.render_scene()}
+        payload = {"response": response}
+        payload.update(self._scene_payload(game_master))
+        return payload
+
+    def scene_images(self, session_id: str) -> Dict[str, str]:
+        game_master = self._store.get(session_id)
+        return self._scene_payload(game_master, progress_only=True)
+
+    @staticmethod
+    def _scene_payload(game_master: GameMaster, *, progress_only: bool = False) -> Dict[str, str]:
+        payload: Dict[str, str] = {"scene": game_master.render_scene()}
+        render_scene_image = (
+            getattr(game_master, "scene_image_progress", None)
+            if progress_only
+            else getattr(game_master, "render_scene_image", None)
+        )
+        if callable(render_scene_image):
+            try:
+                image_result = render_scene_image()
+            except Exception as exc:  # pragma: no cover - 런타임 방어
+                payload["scene_image_error"] = f"장면 이미지를 생성하지 못했습니다: {exc}"
+            else:
+                if image_result:
+                    if image_result.data_urls:
+                        payload["scene_images"] = image_result.data_urls
+                        payload["scene_images_total"] = image_result.total_variations
+                        payload["scene_images_ready"] = image_result.completed_variations
+                        payload["scene_images_done"] = image_result.done
+                    if image_result.data_url:
+                        payload["scene_image"] = image_result.data_url
+                    if image_result.prompt:
+                        payload["scene_prompt"] = image_result.prompt
+                    if image_result.error:
+                        payload["scene_image_error"] = image_result.error
+        return payload
 
     @staticmethod
     def index_html() -> str:
@@ -114,11 +150,17 @@ class TRPGRequestHandler(BaseHTTPRequestHandler):
             payload = app.create_session()
             return _json_response(payload)
 
-        if self.command == "POST" and parsed.path.startswith("/api/session/"):
+        if self.command in {"GET", "POST"} and parsed.path.startswith("/api/session/"):
             try:
                 _, _, _, session_id, action = parsed.path.split("/", 4)
             except ValueError:
                 return _json_error(HTTPStatus.NOT_FOUND, "세션을 찾을 수 없습니다.")
+            if self.command == "GET" and action == "images":
+                try:
+                    payload = app.scene_images(session_id)
+                except KeyError as exc:
+                    return _json_error(HTTPStatus.NOT_FOUND, str(exc))
+                return _json_response(payload)
             if action != "message":
                 return _json_error(HTTPStatus.NOT_FOUND, "지원하지 않는 경로입니다.")
             try:
@@ -206,15 +248,20 @@ def build_index_html() -> str:
                     font-size: 2rem;
                     letter-spacing: -0.03em;
                 }
-                #log {
+                .panel {
                     background: rgba(15, 23, 42, 0.6);
                     border: 1px solid rgba(148, 163, 184, 0.2);
                     border-radius: 12px;
                     padding: 1rem;
+                    margin-bottom: 1rem;
+                }
+                #scene-text {
+                    white-space: pre-wrap;
+                }
+                #log {
                     height: 320px;
                     overflow-y: auto;
                     white-space: pre-wrap;
-                    margin-bottom: 1rem;
                 }
                 form {
                     display: flex;
@@ -246,6 +293,64 @@ def build_index_html() -> str:
                 button:not(:disabled):hover {
                     transform: translateY(-1px);
                 }
+                .scene-visual {
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                    border-radius: 12px;
+                    padding: 0.75rem;
+                    background: rgba(15, 23, 42, 0.5);
+                }
+                .scene-gallery {
+                    display: grid;
+                    gap: 0.75rem;
+                }
+                .scene-frame img {
+                    display: block;
+                    width: 100%;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+                }
+                .scene-variations {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                    gap: 0.5rem;
+                }
+                .scene-variations[data-empty="true"] {
+                    display: none;
+                }
+                .scene-variation {
+                    opacity: 0;
+                    transition: opacity 0.4s ease;
+                }
+                .scene-variation img {
+                    width: 100%;
+                    border-radius: 10px;
+                    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+                    border: 1px solid rgba(148, 163, 184, 0.25);
+                }
+                .scene-variation.fade-in {
+                    animation: fadeIn 0.5s ease forwards;
+                }
+                @keyframes fadeIn {
+                    0% { opacity: 0; }
+                    100% { opacity: 1; }
+                }
+                .eyebrow {
+                    text-transform: uppercase;
+                    letter-spacing: 0.12em;
+                    font-size: 0.75rem;
+                    color: rgba(148, 163, 184, 0.85);
+                    margin: 0 0 0.35rem;
+                }
+                .scene-prompt {
+                    font-size: 0.9rem;
+                    color: rgba(226, 232, 240, 0.85);
+                    margin: 0.5rem 0 0;
+                    white-space: pre-wrap;
+                }
+                .scene-error {
+                    color: #fca5a5;
+                    margin: 0.25rem 0 0.75rem;
+                }
                 footer {
                     margin-top: 1.5rem;
                     font-size: 0.85rem;
@@ -256,7 +361,19 @@ def build_index_html() -> str:
         <body>
             <div class="card">
                 <h1>LangChain TRPG</h1>
-                <div id="log">새 세션을 준비하는 중...</div>
+                <div id="scene-visual" class="scene-visual" hidden>
+                    <p class="eyebrow">Stable Diffusion (MLX)</p>
+                    <div id="scene-gallery" class="scene-gallery" hidden>
+                        <div class="scene-frame primary-frame">
+                            <img id="scene-image" alt="Stable Diffusion으로 생성된 장면" loading="lazy">
+                        </div>
+                        <div id="scene-variations" class="scene-variations" data-empty="true"></div>
+                    </div>
+                    <p id="scene-prompt" class="scene-prompt"></p>
+                </div>
+                <div id="scene-error" class="scene-error" hidden></div>
+                <div id="scene-text" class="panel">(장면을 준비하는 중...)</div>
+                <div id="log" class="panel">새 세션을 준비하는 중...</div>
                 <form id="input-form">
                     <input id="message" type="text" placeholder="행동을 입력하세요" autocomplete="off">
                     <button type="submit">보내기</button>
@@ -267,7 +384,17 @@ def build_index_html() -> str:
                 const log = document.getElementById('log');
                 const form = document.getElementById('input-form');
                 const input = document.getElementById('message');
+                const sceneText = document.getElementById('scene-text');
+                const sceneVisual = document.getElementById('scene-visual');
+                const sceneGallery = document.getElementById('scene-gallery');
+                const sceneImage = document.getElementById('scene-image');
+                const sceneVariations = document.getElementById('scene-variations');
+                const scenePrompt = document.getElementById('scene-prompt');
+                const sceneError = document.getElementById('scene-error');
+                let variationTimers = [];
                 let sessionId = null;
+                let imagePollTimer = null;
+                let expectedImages = 0;
 
                 async function createSession() {
                     const response = await fetch('/api/session', { method: 'POST' });
@@ -278,11 +405,132 @@ def build_index_html() -> str:
                     }
                     const data = await response.json();
                     sessionId = data.session_id;
-                    renderScene(data.scene);
+                    log.textContent = '새 세션이 시작되었습니다.';
+                    renderScene(data);
                 }
 
-                function renderScene(scene) {
-                    log.textContent = scene;
+                function clearVariationTimers() {
+                    variationTimers.forEach(clearTimeout);
+                    variationTimers = [];
+                }
+
+                function resetVariations() {
+                    clearVariationTimers();
+                    sceneVariations.innerHTML = '';
+                    sceneVariations.dataset.empty = 'true';
+                }
+
+                function renderVariations(sources) {
+                    if (!sources.length) {
+                        resetVariations();
+                        return;
+                    }
+
+                    sceneVariations.dataset.empty = 'false';
+
+                    const renderedCount = sceneVariations.childElementCount;
+                    const scheduledCount = variationTimers.length;
+                    const knownCount = renderedCount + scheduledCount;
+                    const newSources = sources.slice(knownCount);
+
+                    if (!newSources.length) {
+                        return;
+                    }
+
+                    newSources.forEach((src, index) => {
+                        const timer = setTimeout(() => {
+                            const frame = document.createElement('div');
+                            frame.className = 'scene-variation';
+                            const img = document.createElement('img');
+                            img.loading = 'lazy';
+                            img.src = src;
+                            img.alt = `Stable Diffusion 변주 ${knownCount + index + 2}`;
+                            img.addEventListener('load', () => {
+                                requestAnimationFrame(() => {
+                                    frame.classList.add('fade-in');
+                                });
+                            });
+                            frame.appendChild(img);
+                            sceneVariations.appendChild(frame);
+                            variationTimers = variationTimers.filter((item) => item !== timer);
+                        }, (knownCount + index) * 320);
+                        variationTimers.push(timer);
+                    });
+                }
+
+                function scheduleImagePoll() {
+                    if (!sessionId || !expectedImages) {
+                        return;
+                    }
+                    clearTimeout(imagePollTimer);
+                    imagePollTimer = setTimeout(fetchLatestImages, 900);
+                }
+
+                async function fetchLatestImages() {
+                    if (!sessionId || !expectedImages) {
+                        return;
+                    }
+                    try {
+                        const response = await fetch(`/api/session/${sessionId}/images`);
+                        if (!response.ok) {
+                            return;
+                        }
+                        const data = await response.json();
+                        renderScene(data);
+                    } finally {
+                        scheduleImagePoll();
+                    }
+                }
+
+                function renderScene(payload) {
+                    if (payload.scene) {
+                        sceneText.textContent = payload.scene;
+                    }
+
+                    const images = Array.isArray(payload.scene_images)
+                        ? payload.scene_images
+                        : (payload.scene_image ? [payload.scene_image] : []);
+
+                    if (images.length) {
+                        sceneImage.src = images[0];
+                        sceneVisual.hidden = false;
+                        sceneGallery.hidden = false;
+                        renderVariations(images.slice(1));
+                        const total = Number(payload.scene_images_total || 0);
+                        const ready = images.length;
+                        const done = payload.scene_images_done === true;
+                        if (total && ready < total && !done) {
+                            expectedImages = total;
+                            scheduleImagePoll();
+                        } else {
+                            expectedImages = 0;
+                            clearTimeout(imagePollTimer);
+                        }
+                        if (payload.scene_prompt) {
+                            scenePrompt.textContent = `프롬프트: ${payload.scene_prompt}`;
+                            scenePrompt.style.display = 'block';
+                        } else {
+                            scenePrompt.textContent = '';
+                            scenePrompt.style.display = 'none';
+                        }
+                    } else {
+                        sceneVisual.hidden = true;
+                        sceneGallery.hidden = true;
+                        resetVariations();
+                        sceneImage.removeAttribute('src');
+                        scenePrompt.textContent = '';
+                        scenePrompt.style.display = 'none';
+                        expectedImages = 0;
+                        clearTimeout(imagePollTimer);
+                    }
+
+                    if (payload.scene_image_error) {
+                        sceneError.textContent = payload.scene_image_error;
+                        sceneError.hidden = false;
+                    } else {
+                        sceneError.textContent = '';
+                        sceneError.hidden = true;
+                    }
                 }
 
                 function appendResponse(message, response) {
@@ -309,7 +557,7 @@ def build_index_html() -> str:
                         }
                         const data = await response.json();
                         appendResponse(message, data.response);
-                        renderScene(data.scene);
+                        renderScene(data);
                         input.value = '';
                         input.focus();
                     } finally {

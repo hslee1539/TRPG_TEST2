@@ -6,7 +6,14 @@ from http.client import HTTPConnection
 
 import pytest
 
+import json
+import threading
+from http.client import HTTPConnection
+
+import pytest
+
 from server import GameMasterError, TRPGHTTPServer, create_app
+from trpg import SceneImageResult
 
 
 class DummyGameMaster:
@@ -32,6 +39,51 @@ class FailingGameMaster(DummyGameMaster):
         raise RuntimeError("No models loaded")
 
 
+class VisualGameMaster(DummyGameMaster):
+    def render_scene_image(self):  # pragma: no cover - 단순 데이터 반환
+        return SceneImageResult(
+            prompt="밤의 성",
+            data_url="data:image/png;base64,abc123",
+            data_urls=["data:image/png;base64,abc123", "data:image/png;base64,def456"],
+            error=None,
+            total_variations=2,
+            completed_variations=2,
+            done=True,
+        )
+
+
+class BrokenVisualGameMaster(DummyGameMaster):
+    def render_scene_image(self):  # pragma: no cover - 예외 경로 확인
+        raise RuntimeError("렌더링 실패")
+
+
+class ProgressiveGameMaster(DummyGameMaster):
+    def __init__(self) -> None:
+        super().__init__()
+        self.called = 0
+
+    def render_scene_image(self):
+        self.called += 1
+        return SceneImageResult(
+            prompt="타워",
+            data_url="data:image/png;base64,first",
+            data_urls=["data:image/png;base64,first"],
+            total_variations=2,
+            completed_variations=1,
+            done=False,
+        )
+
+    def scene_image_progress(self):  # pragma: no cover - 단순 진행 데이터
+        return SceneImageResult(
+            prompt="타워",
+            data_url="data:image/png;base64,first",
+            data_urls=["data:image/png;base64,first", "data:image/png;base64,second"],
+            total_variations=2,
+            completed_variations=2,
+            done=True,
+        )
+
+
 def test_app_create_session() -> None:
     app = create_app(factory=_factory)
 
@@ -49,6 +101,41 @@ def test_app_send_message_updates_scene() -> None:
 
     assert payload["response"] == "응답: 문을 연다"
     assert payload["scene"] == "문을 연다"
+
+
+def test_app_includes_scene_image_when_available() -> None:
+    app = create_app(factory=VisualGameMaster)
+
+    payload = app.create_session()
+
+    assert payload["scene"].startswith("(빈 장면)")
+    assert payload["scene_image"].startswith("data:image/png;base64,")
+    assert payload["scene_images"][0] == payload["scene_image"]
+    assert len(payload["scene_images"]) == 2
+    assert payload["scene_prompt"] == "밤의 성"
+
+
+def test_app_handles_scene_image_errors() -> None:
+    app = create_app(factory=BrokenVisualGameMaster)
+
+    payload = app.create_session()
+
+    assert "scene_image_error" in payload
+    assert "렌더링 실패" in payload["scene_image_error"]
+
+
+def test_app_scene_image_progress_is_polled() -> None:
+    app = create_app(factory=ProgressiveGameMaster)
+    session = app.create_session()
+
+    assert session["scene_images_ready"] == 1
+    assert session["scene_images_total"] == 2
+
+    progress = app.scene_images(session["session_id"])
+
+    assert progress["scene_images_ready"] == 2
+    assert progress["scene_images_total"] == 2
+    assert progress["scene_images_done"] is True
 
 
 def test_app_unknown_session_raises() -> None:
@@ -100,6 +187,35 @@ def test_http_endpoints() -> None:
         assert response.status == 200
         assert message_body["response"] == "응답: 문을 닫는다"
         assert "문을 닫는다" in message_body["scene"]
+    finally:
+        conn.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+def test_http_scene_images_endpoint() -> None:
+    app = create_app(factory=ProgressiveGameMaster)
+    server = TRPGHTTPServer(("127.0.0.1", 0), app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    host, port = server.server_address
+    conn = HTTPConnection(host, port)
+
+    try:
+        conn.request("POST", "/api/session")
+        response = conn.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        session_id = body["session_id"]
+
+        conn.request("GET", f"/api/session/{session_id}/images")
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert payload["scene_images_ready"] >= 1
+        assert payload["scene_images_total"] == 2
     finally:
         conn.close()
         server.shutdown()

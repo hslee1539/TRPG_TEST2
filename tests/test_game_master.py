@@ -57,6 +57,7 @@ from trpg.game_master import (
     SystemMessage,
     create_default_game_master,
 )
+from trpg.scene_image import SceneImageResult
 
 
 class _DummyInvokeLLM:
@@ -165,3 +166,26 @@ def test_game_state_render_scene_formats_ascii_image() -> None:
     assert any("• Player: Hello" in line for line in lines)
     assert any("• GM: The sky is blue" in line for line in lines)
     assert any("and bright." in line for line in lines)
+
+
+class _DummySceneRenderer:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def render(self, facts):
+        self.calls.append(list(facts))
+        return SceneImageResult(prompt="prompt", data_url="data:image/png;base64,xyz")
+
+
+def test_game_master_exposes_scene_renderer() -> None:
+    renderer = _DummySceneRenderer()
+    llm = _DummyInvokeLLM("A reply")
+    gm = GameMaster(llm, system_template="System", scene_renderer=renderer)
+
+    gm.respond("Hello")
+    image = gm.render_scene_image()
+
+    assert renderer.calls, "렌더러가 호출되어야 합니다."
+    assert renderer.calls[-1][-1].startswith("GM: A reply")
+    assert image is not None
+    assert image.data_url.startswith("data:image/png;base64,")

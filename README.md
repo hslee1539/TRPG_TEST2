@@ -39,3 +39,35 @@ python -m server
 ```
 
 브라우저에서 `http://127.0.0.1:8000`을 열면 대화형 UI가 나타납니다. 서버는 내부적으로 `main.build_game_master`를 사용하므로 커맨드라인과 동일한 환경변수(`TRPG_MODEL`, `TRPG_TEMPERATURE`, `TRPG_API_BASE`, `TRPG_API_KEY`) 설정을 그대로 활용할 수 있습니다.
+
+## MLX Stable Diffusion으로 장면 시각화
+Apple Silicon 환경에서 [MLX Stable Diffusion 예제](https://github.com/ml-explore/mlx-examples) 를 설치해 두었다면, 세션마다 현재 장면을 이미지로 렌더링해 웹 UI에서 확인할 수 있습니다.
+
+1. MLX 예제 실행기를 설치합니다. `mlx-examples`는 PyPI에 배포되지 않으므로 저장소를 직접 클론해야 합니다.
+   ```bash
+   pip install mlx
+   git clone https://github.com/ml-explore/mlx-examples.git
+   # 실행 스크립트의 경로를 환경변수에 설정합니다.
+   export TRPG_MLX_SD_COMMAND="python /path/to/mlx-examples/stable_diffusion/txt2image.py"
+   # (mlx-examples를 editable 모드로 설치했다면 기본값 `python -m mlx_examples.stable_diffusion.txt2image`도 사용할 수 있습니다.)
+   ```
+2. 환경변수로 기능을 켭니다.
+   ```bash
+   export TRPG_ENABLE_MLX_SD=1
+   ```
+   필요하다면 실행 커맨드나 모델을 조정할 수 있습니다.
+   ```bash
+   export TRPG_MLX_SD_COMMAND="python -m mlx_examples.stable_diffusion.txt2image"
+   # txt2image는 프롬프트를 위치 인자로 받으며 guidance 파라미터는 --cfg 옵션으로 전달됩니다.
+   # (모델 선택이 가능한 버전이라면 'sd' 혹은 'sdxl' 모델 식별자만 지원합니다.)
+   export TRPG_MLX_SD_MODEL="sdxl"
+   export TRPG_MLX_SD_NEGATIVE_PROMPT="blurry, low quality"
+   # 기본적으로 txt2image의 배치 출력을 끄고 (--n_images 1 혹은 --num_images 1)
+   # 변주 수만큼 반복 실행하여 정확히 원하는 장수만 만듭니다.
+   # 한 번에 여러 변주(기본 4장)를 만들고 싶다면 값을 조정하세요.
+   export TRPG_MLX_SD_VARIATIONS=4
+   ```
+3. 커맨드라인에서는 `--enable-mlx-sd` 옵션을 사용해도 동일하게 동작합니다.
+
+렌더링에 실패하면 텍스트 로그를 그대로 유지하며, 웹 UI에 오류 메시지가 표시됩니다. 기본 ASCII 요약은 계속 제공됩니다.
+첫 번째 결과가 준비되면 바로 표시되고, 남은 변주는 생성되는 대로 순차적으로 갱신됩니다.
