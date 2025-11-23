@@ -106,6 +106,7 @@ class MLXStableDiffusionSceneRenderer:
             if self.negative_prompt:
                 command.extend(["--negative_prompt", self.negative_prompt])
             command.extend(["--steps", str(self.steps)])
+            command.extend(["--num_images", "1"])
             if use_cfg:
                 command.extend(["--cfg", str(self.guidance_scale)])
             else:
@@ -147,7 +148,7 @@ class MLXStableDiffusionSceneRenderer:
                     errors.append(str(exc))
 
             if results:
-                return results
+                return results[: self.variations]
 
             combined = " | ".join(err.strip() for err in errors if err.strip())
             raise RuntimeError(f"Stable Diffusion 실행에 실패했습니다: {combined}")

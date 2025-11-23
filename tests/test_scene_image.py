@@ -30,6 +30,8 @@ def test_build_command_variants_prioritize_positional_prompt() -> None:
     assert "--guidance-scale" not in first
     assert "--model" in first
     assert "--negative_prompt" in first
+    assert "--num_images" in first
+    assert "1" in first
 
 
 def test_run_mlx_retries_with_prompt_flag(monkeypatch: pytest.MonkeyPatch) -> None:

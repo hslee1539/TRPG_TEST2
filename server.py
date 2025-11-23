@@ -377,6 +377,7 @@ def build_index_html() -> str:
                 const sceneVariations = document.getElementById('scene-variations');
                 const scenePrompt = document.getElementById('scene-prompt');
                 const sceneError = document.getElementById('scene-error');
+                let variationTimers = [];
                 let sessionId = null;
 
                 async function createSession() {
@@ -393,6 +394,8 @@ def build_index_html() -> str:
                 }
 
                 function renderVariations(sources) {
+                    variationTimers.forEach(clearTimeout);
+                    variationTimers = [];
                     sceneVariations.innerHTML = '';
                     if (!sources.length) {
                         sceneVariations.dataset.empty = 'true';
@@ -400,20 +403,22 @@ def build_index_html() -> str:
                     }
                     sceneVariations.dataset.empty = 'false';
                     sources.forEach((src, index) => {
-                        const frame = document.createElement('div');
-                        frame.className = 'scene-variation';
-                        const img = document.createElement('img');
-                        img.loading = 'lazy';
-                        img.src = src;
-                        img.alt = `Stable Diffusion 변주 ${index + 2}`;
-                        img.addEventListener('load', () => {
-                            requestAnimationFrame(() => {
-                                frame.style.animationDelay = `${index * 0.08}s`;
-                                frame.classList.add('pop-in');
+                        const timer = setTimeout(() => {
+                            const frame = document.createElement('div');
+                            frame.className = 'scene-variation';
+                            const img = document.createElement('img');
+                            img.loading = 'lazy';
+                            img.src = src;
+                            img.alt = `Stable Diffusion 변주 ${index + 2}`;
+                            img.addEventListener('load', () => {
+                                requestAnimationFrame(() => {
+                                    frame.classList.add('pop-in');
+                                });
                             });
-                        });
-                        frame.appendChild(img);
-                        sceneVariations.appendChild(frame);
+                            frame.appendChild(img);
+                            sceneVariations.appendChild(frame);
+                        }, index * 320);
+                        variationTimers.push(timer);
                     });
                 }
 
