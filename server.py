@@ -319,8 +319,7 @@ def build_index_html() -> str:
                 }
                 .scene-variation {
                     opacity: 0;
-                    transform: translateY(10px);
-                    transition: opacity 0.3s ease, transform 0.3s ease;
+                    transition: opacity 0.4s ease;
                 }
                 .scene-variation img {
                     width: 100%;
@@ -328,14 +327,12 @@ def build_index_html() -> str:
                     box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
                     border: 1px solid rgba(148, 163, 184, 0.25);
                 }
-                .scene-variation.pop-in {
-                    opacity: 1;
-                    transform: translateY(0);
-                    animation: popIn 0.45s ease forwards;
+                .scene-variation.fade-in {
+                    animation: fadeIn 0.5s ease forwards;
                 }
-                @keyframes popIn {
-                    0% { opacity: 0; transform: translateY(12px) scale(0.98); }
-                    100% { opacity: 1; transform: translateY(0) scale(1); }
+                @keyframes fadeIn {
+                    0% { opacity: 0; }
+                    100% { opacity: 1; }
                 }
                 .eyebrow {
                     text-transform: uppercase;
@@ -431,7 +428,7 @@ def build_index_html() -> str:
                             img.alt = `Stable Diffusion 변주 ${index + 2}`;
                             img.addEventListener('load', () => {
                                 requestAnimationFrame(() => {
-                                    frame.classList.add('pop-in');
+                                    frame.classList.add('fade-in');
                                 });
                             });
                             frame.appendChild(img);
