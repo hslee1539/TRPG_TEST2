@@ -99,14 +99,19 @@ class MLXStableDiffusionSceneRenderer:
 
         base_command = list(shlex.split(self.command))
 
-        def _append_common_args(include_model: bool, use_cfg: bool, use_prompt_flag: bool) -> list[str]:
+        def _append_common_args(
+            include_model: bool,
+            use_cfg: bool,
+            use_prompt_flag: bool,
+            image_flag: str,
+        ) -> list[str]:
             command = base_command.copy()
             if include_model and self.model:
                 command.extend(["--model", self.model])
             if self.negative_prompt:
                 command.extend(["--negative_prompt", self.negative_prompt])
             command.extend(["--steps", str(self.steps)])
-            command.extend(["--num_images", "1"])
+            command.extend([image_flag, "1"])
             if use_cfg:
                 command.extend(["--cfg", str(self.guidance_scale)])
             else:
@@ -118,11 +123,30 @@ class MLXStableDiffusionSceneRenderer:
                 command.append(prompt)
             return command
 
-        variants = [
-            _append_common_args(include_model=True, use_cfg=True, use_prompt_flag=False),
-            _append_common_args(include_model=True, use_cfg=False, use_prompt_flag=True),
-            _append_common_args(include_model=False, use_cfg=True, use_prompt_flag=False),
-        ]
+        variants: list[list[str]] = []
+        for image_flag in ("--n_images", "--num_images"):
+            variants.extend(
+                [
+                    _append_common_args(
+                        include_model=True,
+                        use_cfg=True,
+                        use_prompt_flag=False,
+                        image_flag=image_flag,
+                    ),
+                    _append_common_args(
+                        include_model=True,
+                        use_cfg=False,
+                        use_prompt_flag=True,
+                        image_flag=image_flag,
+                    ),
+                    _append_common_args(
+                        include_model=False,
+                        use_cfg=True,
+                        use_prompt_flag=False,
+                        image_flag=image_flag,
+                    ),
+                ]
+            )
 
         deduped: list[list[str]] = []
         seen: set[tuple[str, ...]] = set()

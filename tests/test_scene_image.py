@@ -30,7 +30,7 @@ def test_build_command_variants_prioritize_positional_prompt() -> None:
     assert "--guidance-scale" not in first
     assert "--model" in first
     assert "--negative_prompt" in first
-    assert "--num_images" in first
+    assert "--n_images" in first  # 최신 txt2image 호환 우선
     assert "1" in first
 
 
