@@ -77,10 +77,18 @@ class WebApp:
         payload.update(self._scene_payload(game_master))
         return payload
 
+    def scene_images(self, session_id: str) -> Dict[str, str]:
+        game_master = self._store.get(session_id)
+        return self._scene_payload(game_master, progress_only=True)
+
     @staticmethod
-    def _scene_payload(game_master: GameMaster) -> Dict[str, str]:
+    def _scene_payload(game_master: GameMaster, *, progress_only: bool = False) -> Dict[str, str]:
         payload: Dict[str, str] = {"scene": game_master.render_scene()}
-        render_scene_image = getattr(game_master, "render_scene_image", None)
+        render_scene_image = (
+            getattr(game_master, "scene_image_progress", None)
+            if progress_only
+            else getattr(game_master, "render_scene_image", None)
+        )
         if callable(render_scene_image):
             try:
                 image_result = render_scene_image()
@@ -90,6 +98,9 @@ class WebApp:
                 if image_result:
                     if image_result.data_urls:
                         payload["scene_images"] = image_result.data_urls
+                        payload["scene_images_total"] = image_result.total_variations
+                        payload["scene_images_ready"] = image_result.completed_variations
+                        payload["scene_images_done"] = image_result.done
                     if image_result.data_url:
                         payload["scene_image"] = image_result.data_url
                     if image_result.prompt:
@@ -139,11 +150,17 @@ class TRPGRequestHandler(BaseHTTPRequestHandler):
             payload = app.create_session()
             return _json_response(payload)
 
-        if self.command == "POST" and parsed.path.startswith("/api/session/"):
+        if self.command in {"GET", "POST"} and parsed.path.startswith("/api/session/"):
             try:
                 _, _, _, session_id, action = parsed.path.split("/", 4)
             except ValueError:
                 return _json_error(HTTPStatus.NOT_FOUND, "세션을 찾을 수 없습니다.")
+            if self.command == "GET" and action == "images":
+                try:
+                    payload = app.scene_images(session_id)
+                except KeyError as exc:
+                    return _json_error(HTTPStatus.NOT_FOUND, str(exc))
+                return _json_response(payload)
             if action != "message":
                 return _json_error(HTTPStatus.NOT_FOUND, "지원하지 않는 경로입니다.")
             try:
@@ -379,6 +396,8 @@ def build_index_html() -> str:
                 const sceneError = document.getElementById('scene-error');
                 let variationTimers = [];
                 let sessionId = null;
+                let imagePollTimer = null;
+                let expectedImages = 0;
 
                 async function createSession() {
                     const response = await fetch('/api/session', { method: 'POST' });
@@ -422,6 +441,30 @@ def build_index_html() -> str:
                     });
                 }
 
+                function scheduleImagePoll() {
+                    if (!sessionId || !expectedImages) {
+                        return;
+                    }
+                    clearTimeout(imagePollTimer);
+                    imagePollTimer = setTimeout(fetchLatestImages, 900);
+                }
+
+                async function fetchLatestImages() {
+                    if (!sessionId || !expectedImages) {
+                        return;
+                    }
+                    try {
+                        const response = await fetch(`/api/session/${sessionId}/images`);
+                        if (!response.ok) {
+                            return;
+                        }
+                        const data = await response.json();
+                        renderScene(data);
+                    } finally {
+                        scheduleImagePoll();
+                    }
+                }
+
                 function renderScene(payload) {
                     if (payload.scene) {
                         sceneText.textContent = payload.scene;
@@ -436,6 +479,16 @@ def build_index_html() -> str:
                         sceneVisual.hidden = false;
                         sceneGallery.hidden = false;
                         renderVariations(images.slice(1));
+                        const total = Number(payload.scene_images_total || 0);
+                        const ready = images.length;
+                        const done = payload.scene_images_done === true;
+                        if (total && ready < total && !done) {
+                            expectedImages = total;
+                            scheduleImagePoll();
+                        } else {
+                            expectedImages = 0;
+                            clearTimeout(imagePollTimer);
+                        }
                         if (payload.scene_prompt) {
                             scenePrompt.textContent = `프롬프트: ${payload.scene_prompt}`;
                             scenePrompt.style.display = 'block';
@@ -451,6 +504,8 @@ def build_index_html() -> str:
                         sceneImage.removeAttribute('src');
                         scenePrompt.textContent = '';
                         scenePrompt.style.display = 'none';
+                        expectedImages = 0;
+                        clearTimeout(imagePollTimer);
                     }
 
                     if (payload.scene_image_error) {

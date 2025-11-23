@@ -82,3 +82,28 @@ def test_run_mlx_collects_multiple_variations(monkeypatch: pytest.MonkeyPatch) -
 
     assert len(data_urls) == 3
     assert all(url.startswith("data:image/png;base64,") for url in data_urls)
+
+
+def test_render_streams_first_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    renderer = scene_image.MLXStableDiffusionSceneRenderer(
+        command="python -m mlx_examples.stable_diffusion.txt2image",
+        variations=2,
+    )
+
+    outputs = ["data:image/png;base64,first", "data:image/png;base64,second"]
+
+    def fake_run_single_mlx(output_path: Path, prompt: str) -> str:  # type: ignore[override]
+        output_path.write_bytes(b"data")
+        return outputs.pop(0)
+
+    monkeypatch.setattr(renderer, "_run_single_mlx", fake_run_single_mlx)
+
+    result = renderer.render(["a castle"]) or scene_image.SceneImageResult(prompt="", data_url=None)
+
+    assert result.data_urls is not None
+    assert result.data_urls[0] == "data:image/png;base64,first"
+    assert len(result.data_urls) >= 1
+    latest = renderer.latest_result()
+    assert latest is not None
+    assert latest.total_variations == 2
+    assert latest.completed_variations >= 1

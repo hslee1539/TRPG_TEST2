@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
@@ -32,6 +33,65 @@ class SceneImageResult:
     data_url: Optional[str]
     error: Optional[str] = None
     data_urls: Optional[list[str]] = None
+    total_variations: Optional[int] = None
+    completed_variations: Optional[int] = None
+    done: Optional[bool] = None
+
+
+class SceneImageJob:
+    """백그라운드로 변주 이미지를 생성하며 진행 상황을 보관합니다."""
+
+    def __init__(self, *, prompt: str, total: int, generator) -> None:
+        self.prompt = prompt
+        self.total = total
+        self._generator = generator
+        self._lock = threading.Lock()
+        self._first_ready = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._data_urls: list[str] = []
+        self.error: Optional[str] = None
+        self.done = False
+
+    def start(self) -> None:
+        thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = thread
+        thread.start()
+
+    def wait_first(self) -> None:
+        self._first_ready.wait()
+
+    def _run(self) -> None:
+        try:
+            for url in self._generator():
+                with self._lock:
+                    self._data_urls.append(url)
+                    if len(self._data_urls) == 1:
+                        self._first_ready.set()
+            with self._lock:
+                self.done = True
+        except Exception as exc:  # pragma: no cover - 방어적 백그라운드 경로
+            with self._lock:
+                self.error = str(exc)
+                self.done = True
+                if not self._data_urls:
+                    self._first_ready.set()
+        finally:
+            if not self._first_ready.is_set():
+                self._first_ready.set()
+
+    def snapshot(self) -> SceneImageResult:
+        with self._lock:
+            data_urls = list(self._data_urls)
+            primary = data_urls[0] if data_urls else None
+            return SceneImageResult(
+                prompt=self.prompt,
+                data_url=primary,
+                data_urls=data_urls or None,
+                error=self.error,
+                total_variations=self.total,
+                completed_variations=len(data_urls),
+                done=self.done,
+            )
 
 
 class MLXStableDiffusionSceneRenderer:
@@ -62,6 +122,7 @@ class MLXStableDiffusionSceneRenderer:
         )
         self.variations = max(1, int(os.getenv("TRPG_MLX_SD_VARIATIONS", str(variations))))
         self.enabled = enabled
+        self._active_job: Optional[SceneImageJob] = None
 
     def render(self, facts: Sequence[str]) -> Optional[SceneImageResult]:
         """현재까지의 사실을 기반으로 Stable Diffusion 프롬프트를 만들고 실행합니다."""
@@ -70,14 +131,26 @@ class MLXStableDiffusionSceneRenderer:
             return None
 
         prompt = self._build_prompt(facts)
+        job = SceneImageJob(
+            prompt=prompt,
+            total=self.variations,
+            generator=lambda: self._iterate_variations(prompt),
+        )
+        self._active_job = job
         try:
-            data_urls = self._run_mlx(prompt)
+            job.start()
+            job.wait_first()
+            return job.snapshot()
         except Exception as exc:  # pragma: no cover - 방어적 코드 경로
             message = f"MLX Stable Diffusion 실행 오류: {exc}"
-            return SceneImageResult(prompt=prompt, data_url=None, error=message)
-
-        primary = data_urls[0] if data_urls else None
-        return SceneImageResult(prompt=prompt, data_url=primary, data_urls=data_urls)
+            return SceneImageResult(
+                prompt=prompt,
+                data_url=None,
+                error=message,
+                total_variations=self.variations,
+                completed_variations=0,
+                done=True,
+            )
 
     def _build_prompt(self, facts: Sequence[str]) -> str:
         if not facts:
@@ -157,25 +230,23 @@ class MLXStableDiffusionSceneRenderer:
                 seen.add(key)
         return deduped
 
-    def _run_mlx(self, prompt: str) -> list[str]:
-        """MLX Stable Diffusion CLI를 실행하고 data URL 목록을 반환합니다."""
+    def _iterate_variations(self, prompt: str):
+        """변주를 순서대로 생성하며 data URL을 yield합니다."""
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            results: list[str] = []
-            errors: list[str] = []
-
             for index in range(self.variations):
                 output_path = Path(tmpdir) / f"scene_{index}.png"
-                try:
-                    results.append(self._run_single_mlx(output_path, prompt))
-                except RuntimeError as exc:  # pragma: no cover - 방어적 코드 경로
-                    errors.append(str(exc))
+                yield self._run_single_mlx(output_path, prompt)
 
-            if results:
-                return results[: self.variations]
+    def _run_mlx(self, prompt: str) -> list[str]:
+        """이전 동기 API와 호환을 위해 변주를 모두 반환합니다."""
 
-            combined = " | ".join(err.strip() for err in errors if err.strip())
-            raise RuntimeError(f"Stable Diffusion 실행에 실패했습니다: {combined}")
+        return list(self._iterate_variations(prompt))
+
+    def latest_result(self) -> Optional[SceneImageResult]:
+        if self._active_job is None:
+            return None
+        return self._active_job.snapshot()
 
     def _run_single_mlx(self, output_path: Path, prompt: str) -> str:
         """단일 이미지를 생성하고 data URL을 반환합니다."""

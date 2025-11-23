@@ -103,6 +103,7 @@ class GameMaster:
         self._system_message = SystemMessage(content=system_template)
         self._chat_history: List[BaseMessage] = []
         self.scene_renderer = scene_renderer
+        self._latest_scene_image: Optional[SceneImageResult] = None
         if initial_facts:
             for fact in initial_facts:
                 self.state.add_fact(fact)
@@ -173,7 +174,21 @@ class GameMaster:
 
         if self.scene_renderer is None:
             return None
-        return self.scene_renderer.render(self.state.facts)
+        result = self.scene_renderer.render(self.state.facts)
+        if result:
+            self._latest_scene_image = result
+        return result
+
+    def scene_image_progress(self) -> Optional[SceneImageResult]:
+        """가장 최근 이미지 생성 작업의 진행 상황을 조회한다."""
+
+        if self.scene_renderer is None:
+            return None
+        result = self.scene_renderer.latest_result()
+        if result:
+            self._latest_scene_image = result
+            return result
+        return self._latest_scene_image
 
 
 def create_default_game_master(
