@@ -161,10 +161,31 @@ class MLXStableDiffusionSceneRenderer:
 
         description = " \n".join(facts)
         summary = textwrap.shorten(description, width=320, placeholder=" …")
-        return (
+        prompt = (
             "Illustrate the current tabletop RPG scene in a painterly, detailed style. "
             "Show characters and environment faithfully. Narrative facts: "
             f"{summary}"
+        )
+        return self._sanitize_prompt(prompt)
+
+    @staticmethod
+    def _sanitize_prompt(prompt: str) -> str:
+        """Remove characters unsupported by the bundled tokenizer.
+
+        The upstream MLX Stable Diffusion tokenizer raises ``KeyError`` for tokens not
+        present in its vocabulary (e.g. Korean characters). To avoid failing image
+        generation entirely we best-effort strip non-ASCII characters and collapse
+        whitespace, falling back to a minimal English description if everything was
+        removed.
+        """
+
+        ascii_only = prompt.encode("ascii", "ignore").decode("ascii")
+        cleaned = " ".join(ascii_only.split())
+        if cleaned:
+            return cleaned
+        return (
+            "Illustrate the current tabletop RPG scene in a painterly, detailed style. "
+            "Show characters and environment faithfully."
         )
 
     def _build_command_variants(self, output_path: Path, prompt: str) -> list[list[str]]:

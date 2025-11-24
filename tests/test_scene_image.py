@@ -84,6 +84,22 @@ def test_run_mlx_collects_multiple_variations(monkeypatch: pytest.MonkeyPatch) -
     assert all(url.startswith("data:image/png;base64,") for url in data_urls)
 
 
+def test_build_prompt_sanitizes_non_ascii() -> None:
+    renderer = scene_image.MLXStableDiffusionSceneRenderer()
+
+    prompt = renderer._build_prompt([
+        "플레이어: 이동한다.",
+        "GM: 여행을 시작합니다.",
+    ])
+
+    assert "플레이어" not in prompt
+    assert "여행" not in prompt
+    assert prompt.startswith(
+        "Illustrate the current tabletop RPG scene in a painterly, detailed style."
+    )
+    assert prompt.strip(), "정리된 프롬프트가 비어 있지 않아야 합니다."
+
+
 def test_render_streams_first_result(monkeypatch: pytest.MonkeyPatch) -> None:
     renderer = scene_image.MLXStableDiffusionSceneRenderer(
         command="python -m mlx_examples.stable_diffusion.txt2image",
