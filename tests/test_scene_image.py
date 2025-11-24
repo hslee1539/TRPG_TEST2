@@ -84,7 +84,7 @@ def test_run_mlx_collects_multiple_variations(monkeypatch: pytest.MonkeyPatch) -
     assert all(url.startswith("data:image/png;base64,") for url in data_urls)
 
 
-def test_build_prompt_sanitizes_non_ascii() -> None:
+def test_build_prompt_sanitizes_non_ascii_with_fallback_scenario() -> None:
     renderer = scene_image.MLXStableDiffusionSceneRenderer()
 
     prompt = renderer._build_prompt([
@@ -94,10 +94,24 @@ def test_build_prompt_sanitizes_non_ascii() -> None:
 
     assert "플레이어" not in prompt
     assert "여행" not in prompt
-    assert prompt.startswith(
-        "Illustrate the current tabletop RPG scene in a painterly, detailed style."
-    )
+    assert "Adventurers setting out on a new journey" in prompt
     assert prompt.strip(), "정리된 프롬프트가 비어 있지 않아야 합니다."
+
+
+def test_build_prompt_uses_recent_facts_only() -> None:
+    renderer = scene_image.MLXStableDiffusionSceneRenderer()
+
+    prompt = renderer._build_prompt(
+        [
+            "Narrator: A quiet village at dawn.",
+            "Player: Investigates a relic.",
+            "GM: A sudden storm arrives.",
+        ]
+    )
+
+    assert "quiet village" not in prompt  # 오래된 사실은 제외
+    assert "Investigates a relic" in prompt
+    assert "sudden storm" in prompt
 
 
 def test_render_streams_first_result(monkeypatch: pytest.MonkeyPatch) -> None:
