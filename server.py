@@ -84,6 +84,12 @@ class WebApp:
     @staticmethod
     def _scene_payload(game_master: GameMaster, *, progress_only: bool = False) -> Dict[str, str]:
         payload: Dict[str, str] = {"scene": game_master.render_scene()}
+        status = getattr(game_master, "get_status", None)
+        if callable(status):
+            try:
+                payload["status"] = status()
+            except Exception as exc:  # pragma: no cover - 런타임 방어
+                payload["status_error"] = f"상태 정보를 불러오지 못했습니다: {exc}"
         render_scene_image = (
             getattr(game_master, "scene_image_progress", None)
             if progress_only
@@ -255,6 +261,51 @@ def build_index_html() -> str:
                     padding: 1rem;
                     margin-bottom: 1rem;
                 }
+                .status-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                    gap: 0.75rem;
+                    margin-bottom: 1rem;
+                }
+                .status-card {
+                    background: rgba(15, 23, 42, 0.6);
+                    border: 1px solid rgba(148, 163, 184, 0.2);
+                    border-radius: 12px;
+                    padding: 0.75rem 1rem;
+                    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+                }
+                .status-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 0.35rem;
+                    color: rgba(226, 232, 240, 0.9);
+                }
+                .status-name {
+                    font-weight: 700;
+                    letter-spacing: 0.04em;
+                }
+                .status-value {
+                    font-variant-numeric: tabular-nums;
+                    font-weight: 700;
+                }
+                .status-bar {
+                    height: 12px;
+                    background: rgba(148, 163, 184, 0.25);
+                    border-radius: 999px;
+                    overflow: hidden;
+                    position: relative;
+                }
+                .status-fill {
+                    position: absolute;
+                    inset: 0;
+                    width: 40%;
+                    border-radius: 999px;
+                    transition: width 0.3s ease;
+                }
+                .status-fill.hp { background: linear-gradient(135deg, #f87171, #ef4444); }
+                .status-fill.mp { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+                .status-fill.exp { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
                 #scene-text {
                     white-space: pre-wrap;
                 }
@@ -361,6 +412,35 @@ def build_index_html() -> str:
         <body>
             <div class="card">
                 <h1>LangChain TRPG</h1>
+                <div id="status" class="status-grid" hidden>
+                    <div class="status-card">
+                        <div class="status-header">
+                            <span class="status-name">HP</span>
+                            <span id="status-hp-value" class="status-value">100</span>
+                        </div>
+                        <div class="status-bar" aria-label="체력">
+                            <div id="status-hp-fill" class="status-fill hp"></div>
+                        </div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-header">
+                            <span class="status-name">MP</span>
+                            <span id="status-mp-value" class="status-value">50</span>
+                        </div>
+                        <div class="status-bar" aria-label="마나">
+                            <div id="status-mp-fill" class="status-fill mp"></div>
+                        </div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-header">
+                            <span class="status-name">EXP</span>
+                            <span id="status-exp-value" class="status-value">0</span>
+                        </div>
+                        <div class="status-bar" aria-label="경험치">
+                            <div id="status-exp-fill" class="status-fill exp"></div>
+                        </div>
+                    </div>
+                </div>
                 <div id="scene-visual" class="scene-visual" hidden>
                     <p class="eyebrow">Stable Diffusion (MLX)</p>
                     <div id="scene-gallery" class="scene-gallery" hidden>
@@ -391,6 +471,13 @@ def build_index_html() -> str:
                 const sceneVariations = document.getElementById('scene-variations');
                 const scenePrompt = document.getElementById('scene-prompt');
                 const sceneError = document.getElementById('scene-error');
+                const statusSection = document.getElementById('status');
+                const statusHpValue = document.getElementById('status-hp-value');
+                const statusHpFill = document.getElementById('status-hp-fill');
+                const statusMpValue = document.getElementById('status-mp-value');
+                const statusMpFill = document.getElementById('status-mp-fill');
+                const statusExpValue = document.getElementById('status-exp-value');
+                const statusExpFill = document.getElementById('status-exp-fill');
                 let variationTimers = [];
                 let sessionId = null;
                 let imagePollTimer = null;
@@ -418,6 +505,27 @@ def build_index_html() -> str:
                     clearVariationTimers();
                     sceneVariations.innerHTML = '';
                     sceneVariations.dataset.empty = 'true';
+                }
+
+                function renderStatus(payload) {
+                    const status = payload.status;
+                    if (!status || typeof status !== 'object') {
+                        statusSection.hidden = true;
+                        return;
+                    }
+
+                    statusSection.hidden = false;
+                    updateBar(statusHpFill, statusHpValue, Number(status.hp ?? 0), 100);
+                    updateBar(statusMpFill, statusMpValue, Number(status.mp ?? 0), 100);
+                    updateBar(statusExpFill, statusExpValue, Number(status.exp ?? 0), 100);
+                }
+
+                function updateBar(fillEl, valueEl, rawValue, maxValue = 100) {
+                    const safeValue = Number.isFinite(rawValue) ? rawValue : 0;
+                    const clamped = Math.max(0, Math.min(maxValue, safeValue));
+                    valueEl.textContent = safeValue;
+                    const percentage = maxValue > 0 ? (clamped / maxValue) * 100 : 0;
+                    fillEl.style.width = `${Math.max(0, Math.min(100, percentage))}%`;
                 }
 
                 function renderVariations(sources) {
@@ -486,6 +594,8 @@ def build_index_html() -> str:
                     if (payload.scene) {
                         sceneText.textContent = payload.scene;
                     }
+
+                    renderStatus(payload);
 
                     const images = Array.isArray(payload.scene_images)
                         ? payload.scene_images
