@@ -13,7 +13,6 @@ import shlex
 import subprocess
 import sys
 import tempfile
-import textwrap
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -159,12 +158,69 @@ class MLXStableDiffusionSceneRenderer:
                 "moody lighting, dynamic composition"
             )
 
-        description = " \n".join(facts)
-        summary = textwrap.shorten(description, width=320, placeholder=" …")
+        key_details = self._select_relevant_facts(facts)
+        if key_details:
+            scenario = " / ".join(key_details)
+        else:
+            scenario = (
+                "Adventurers setting out on a new journey, choosing their next "
+                "destination"
+            )
+
+        prompt = (
+            "Painterly, detailed illustration of the current tabletop RPG moment. "
+            "Cinematic lighting, vivid colors. Focus on: "
+            f"{scenario}. Show characters and environment clearly."
+        )
+        return self._sanitize_prompt(prompt)
+
+    @staticmethod
+    def _select_relevant_facts(facts: Sequence[str]) -> list[str]:
+        """최근 사실 위주로 요약 가능한 영어 프롬프트 조각을 뽑아냅니다."""
+
+        relevant: list[str] = []
+        for fact in reversed(facts):
+            cleaned = MLXStableDiffusionSceneRenderer._sanitize_fragment(
+                MLXStableDiffusionSceneRenderer._strip_speaker(fact)
+            )
+            if cleaned:
+                relevant.append(cleaned)
+            if len(relevant) == 2:
+                break
+        return list(reversed(relevant))
+
+    @staticmethod
+    def _strip_speaker(text: str) -> str:
+        if ":" in text:
+            return text.split(":", 1)[1].strip()
+        return text
+
+    @staticmethod
+    def _sanitize_fragment(text: str) -> str:
+        ascii_only = text.encode("ascii", "ignore").decode("ascii")
+        cleaned = " ".join(ascii_only.split())
+        if not any(ch.isalnum() for ch in cleaned):
+            return ""
+        return cleaned
+
+    @staticmethod
+    def _sanitize_prompt(prompt: str) -> str:
+        """Remove characters unsupported by the bundled tokenizer.
+
+        The upstream MLX Stable Diffusion tokenizer raises ``KeyError`` for tokens not
+        present in its vocabulary (e.g. Korean characters). To avoid failing image
+        generation entirely we best-effort strip non-ASCII characters and collapse
+        whitespace, falling back to a minimal English description if everything was
+        removed.
+        """
+
+        ascii_only = prompt.encode("ascii", "ignore").decode("ascii")
+        cleaned = " ".join(ascii_only.split())
+        if cleaned:
+            return cleaned
         return (
             "Illustrate the current tabletop RPG scene in a painterly, detailed style. "
-            "Show characters and environment faithfully. Narrative facts: "
-            f"{summary}"
+            "Show characters and environment faithfully."
         )
 
     def _build_command_variants(self, output_path: Path, prompt: str) -> list[list[str]]:
