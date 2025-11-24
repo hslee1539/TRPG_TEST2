@@ -47,6 +47,9 @@ class GameState:
     """Lightweight container holding story beats and world facts."""
 
     facts: List[str] = field(default_factory=list)
+    hp: int = 100
+    mp: int = 50
+    exp: int = 0
 
     def add_fact(self, fact: str) -> None:
         """Store a new fact about the world or the ongoing scene."""
@@ -61,6 +64,18 @@ class GameState:
         if not self.facts:
             return "(no established facts yet)"
         return "\n".join(f"- {fact}" for fact in self.facts)
+
+    def status_snapshot(self) -> dict[str, int]:
+        """Return a simple mapping of the player's current stats."""
+
+        def _clamp(value: int, minimum: int = 0, maximum: int = 999) -> int:
+            return max(minimum, min(maximum, int(value)))
+
+        return {
+            "hp": _clamp(self.hp, maximum=999),
+            "mp": _clamp(self.mp, maximum=999),
+            "exp": _clamp(self.exp, maximum=9999),
+        }
 
     def render_scene(self, *, width: int = 60) -> str:
         """Render an ASCII "image" summarising the known facts."""
@@ -168,6 +183,11 @@ class GameMaster:
         """Expose the ASCII representation of the tracked facts."""
 
         return self.state.render_scene(width=width)
+
+    def get_status(self) -> dict[str, int]:
+        """Expose the current player stats for UI rendering."""
+
+        return self.state.status_snapshot()
 
     def render_scene_image(self) -> Optional[SceneImageResult]:
         """옵션으로 MLX Stable Diffusion 이미지를 생성한다."""
